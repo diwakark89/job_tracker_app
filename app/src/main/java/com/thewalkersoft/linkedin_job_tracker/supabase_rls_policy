@@ -1,0 +1,55 @@
+-- Intent: keep permissive policies for rapid development and integration testing.
+-- Tradeoff: anon/authenticated true-allow rules are not safe for production workloads.
+-- Invariant: do not tighten rules in this file during active dev sync iterations.
+-- TODO(v1.0-prod-hardening): Replace anon true-allow policies with owner-scoped SELECT/INSERT/UPDATE/DELETE predicates.
+-- TODO(v1.0-prod-hardening): Move shared_links access to authenticated owner checks and audit service-role-only operations.
+
+alter policy "jobs_delete_anon"
+on "public"."jobs"
+to anon
+using (
+  true
+);
+
+
+alter policy "jobs_insert_anon"
+on "public"."jobs"
+to anon
+with check (
+  true
+);
+
+alter policy "jobs_private_all"
+on "public"."jobs"
+to authenticated
+using (
+  true
+) with check (
+  true
+);
+
+alter policy "jobs_select_anon"
+on "public"."jobs"
+to anon
+using (
+  true
+);
+
+
+alter policy "jobs_update_anon"
+on "public"."jobs"
+to anon
+using (
+  true
+) with check (
+  true
+);
+
+alter policy "shared_links_private_all"
+on "public"."shared_links"
+to authenticated
+using (
+  true
+) with check (
+  true
+);
