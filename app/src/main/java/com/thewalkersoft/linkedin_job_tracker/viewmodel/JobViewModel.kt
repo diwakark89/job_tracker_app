@@ -23,7 +23,10 @@ import com.thewalkersoft.linkedin_job_tracker.sync.RealtimeJobEvent
 import com.thewalkersoft.linkedin_job_tracker.sync.SupabaseRealtimeManager
 import com.thewalkersoft.linkedin_job_tracker.sync.SupabaseRepository
 import com.thewalkersoft.linkedin_job_tracker.sync.OutboxSyncWorker
+import com.thewalkersoft.linkedin_job_tracker.sync.SyncDiagnostics
+import com.thewalkersoft.linkedin_job_tracker.ui.model.JobSyncFailureInfo
 import com.thewalkersoft.linkedin_job_tracker.ui.model.JobSyncDotState
+import com.thewalkersoft.linkedin_job_tracker.ui.model.buildJobSyncFailureInfoList
 import com.thewalkersoft.linkedin_job_tracker.util.PreferencesManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -75,6 +78,12 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _jobSyncStateById = MutableStateFlow<Map<String, JobSyncDotState>>(emptyMap())
     val jobSyncStateById: StateFlow<Map<String, JobSyncDotState>> = _jobSyncStateById.asStateFlow()
+
+    private val _jobSyncFailureById = MutableStateFlow<Map<String, JobSyncFailureInfo>>(emptyMap())
+    val jobSyncFailureById: StateFlow<Map<String, JobSyncFailureInfo>> = _jobSyncFailureById.asStateFlow()
+
+    private val _syncFailureJobs = MutableStateFlow<List<JobSyncFailureInfo>>(emptyList())
+    val syncFailureJobs: StateFlow<List<JobSyncFailureInfo>> = _syncFailureJobs.asStateFlow()
 
     // Pending jobs: URL -> (timestamp, isProcessing)
     private val _pendingJobsByUrl = MutableStateFlow<Map<String, Long>>(emptyMap())
@@ -141,6 +150,7 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
         // 1. Warm Room cache from cloud
         viewModelScope.launch {
             val pullResult = repository.pullCloudJobsToRoom()
+            applyPullDiagnostics(pullResult)
             preferencesManager.saveLastSyncFailedPushCount(pullResult.failedPush)
             if (pullResult.success && pullResult.failedPush == 0) {
                 preferencesManager.saveLastSyncTimeMillis(System.currentTimeMillis())
@@ -241,6 +251,11 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
                             else -> null
                         }
 
+                        Log.d(
+                            SyncDiagnostics.TAG,
+                            "[manualSync][complete] state=${workInfo.state} attempted=$outAttempted acknowledged=$outAcknowledged failed=$outFailed pulledUpdates=$outPulled"
+                        )
+
                         manualSyncRequested = false
                         endLoading()
                         refreshPerJobSyncState()
@@ -277,6 +292,7 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
             while (true) {
                 _queueStatus.value = preferencesManager.getOutboxOperations().size
                 _lastSyncTime.value = preferencesManager.getLastSyncTimeMillis()
+                refreshSyncFailureDiagnostics()
                 kotlinx.coroutines.delay(2000) // Update every 2 seconds
             }
         }
@@ -363,8 +379,13 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
         // Add to pending jobs
         _pendingJobsByUrl.value = _pendingJobsByUrl.value + (sharedJobUrl to System.currentTimeMillis())
 
-        val pushed = repository.pushSharedLink(sharedJobUrl)
-        if (!pushed) {
+        val result = repository.pushSharedLink(sharedJobUrl)
+        if (!result.success) {
+            val reason = result.failureReason ?: SyncDiagnostics.buildFailureReason(
+                stage = "handleSharedLink",
+                detail = "Shared link push failed"
+            )
+            preferencesManager.saveLastSyncFailureReason(sharedJobUrl, reason)
             preferencesManager.enqueueOperation(
                 OutboxOperation(
                     type = OutboxOperationType.SHARED_LINK,
@@ -372,10 +393,19 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
                     sharedUrl = sharedJobUrl
                 )
             )
+            Log.w(
+                SyncDiagnostics.TAG,
+                "[sharedLink][queued] jobUrl=${SyncDiagnostics.redactJobUrl(sharedJobUrl)} reason=$reason queueSize=${preferencesManager.getOutboxOperations().size}"
+            )
             OutboxWorkScheduler.kick(getApplication())
         } else {
+            preferencesManager.clearLastSyncFailureReason(sharedJobUrl)
             preferencesManager.saveLastSyncFailedPushCount(0)
             preferencesManager.saveLastSyncTimeMillis(System.currentTimeMillis())
+            Log.d(
+                SyncDiagnostics.TAG,
+                "[sharedLink][synced] jobUrl=${SyncDiagnostics.redactJobUrl(sharedJobUrl)}"
+            )
         }
         refreshCloudHealth()
         _message.value = "Processing LinkedIn job..."
@@ -415,6 +445,10 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
 
     fun runManualSync() {
         if (_manualSyncUiState.value.isRunning) return
+        Log.d(
+            SyncDiagnostics.TAG,
+            "[manualSync][start] queueSize=${preferencesManager.getOutboxOperations().size} lastSync=${preferencesManager.getLastSyncTimeMillis() ?: -1L}"
+        )
         manualSyncRequested = true
         handledManualWorkId = null
         _manualSyncUiState.value = ManualSyncUiState(isRunning = true)
@@ -427,7 +461,7 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val updatedJob = job.copy(
                 status = newStatus,
-                lastModified = System.currentTimeMillis()
+                updatedAt = System.currentTimeMillis()
             )
             dao.upsertJob(updatedJob)
             queueOrPushUpsert(updatedJob)
@@ -441,7 +475,7 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
                 jobUrl = jobUrl,
                 jobTitle = jobTitle,
                 jobDescription = jobDescription,
-                lastModified = System.currentTimeMillis()
+                updatedAt = System.currentTimeMillis()
             )
             dao.upsertJob(updatedJob)
             queueOrPushUpsert(updatedJob)
@@ -457,7 +491,7 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
             }
             val tombstonedJob = job.copy(
                 isDeleted = true,
-                lastModified = System.currentTimeMillis()
+                updatedAt = System.currentTimeMillis()
             )
             dao.upsertJob(tombstonedJob)
             queueOrPushUpsert(tombstonedJob)
@@ -468,37 +502,54 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val restoredJob = job.copy(
                 isDeleted = false,
-                lastModified = System.currentTimeMillis()
+                updatedAt = System.currentTimeMillis()
             )
             saveJob(restoredJob)
         }
     }
 
     private suspend fun queueOrPushUpsert(job: JobEntity) {
-        val pushed = repository.pushJob(job)
-        if (!pushed) {
+        val result = repository.pushJob(job)
+        if (!result.success) {
+            val reason = result.failureReason ?: SyncDiagnostics.buildFailureReason(
+                stage = "queueOrPushUpsert",
+                detail = "Direct upsert failed"
+            )
+            preferencesManager.saveLastSyncFailureReason(job.jobUrl, reason)
             preferencesManager.enqueueOperation(
                 OutboxOperation(
                     type = OutboxOperationType.UPSERT,
                     jobId = job.id,
                     jobUrl = job.jobUrl,
-                    lastModified = job.lastModified
+                    lastModified = job.updatedAt
                 )
+            )
+            Log.w(
+                SyncDiagnostics.TAG,
+                "[directUpsert][queued] jobId=${job.id} jobUrl=${SyncDiagnostics.redactJobUrl(job.jobUrl)} reason=$reason queueSize=${preferencesManager.getOutboxOperations().size}"
             )
             OutboxWorkScheduler.kick(getApplication())
         } else {
+            preferencesManager.clearLastSyncFailureReason(job.jobUrl)
             preferencesManager.saveLastSyncFailedPushCount(0)
             preferencesManager.saveLastSyncTimeMillis(System.currentTimeMillis())
+            Log.d(
+                SyncDiagnostics.TAG,
+                "[directUpsert][synced] jobId=${job.id} jobUrl=${SyncDiagnostics.redactJobUrl(job.jobUrl)}"
+            )
         }
         refreshPerJobSyncState()
         refreshCloudHealth()
     }
 
     private suspend fun queueOrPushDelete(job: JobEntity) {
-        val result = repository.pushDelete(job.id)
-        val pushed = result == SupabaseRepository.DeletePushResult.SUCCESS ||
-            result == SupabaseRepository.DeletePushResult.NOT_FOUND
-        if (!pushed) {
+        val result = repository.pushDelete(job.id, job.jobUrl)
+        if (!result.acknowledged) {
+            val reason = result.failureReason ?: SyncDiagnostics.buildFailureReason(
+                stage = "queueOrPushDelete",
+                detail = "Direct delete failed"
+            )
+            preferencesManager.saveLastSyncFailureReason(job.jobUrl, reason)
             preferencesManager.enqueueOperation(
                 OutboxOperation(
                     type = OutboxOperationType.DELETE,
@@ -507,13 +558,32 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
                     lastModified = System.currentTimeMillis()
                 )
             )
+            Log.w(
+                SyncDiagnostics.TAG,
+                "[directDelete][queued] jobId=${job.id} jobUrl=${SyncDiagnostics.redactJobUrl(job.jobUrl)} reason=$reason queueSize=${preferencesManager.getOutboxOperations().size}"
+            )
             OutboxWorkScheduler.kick(getApplication())
         } else {
+            preferencesManager.clearLastSyncFailureReason(job.jobUrl)
             preferencesManager.saveLastSyncFailedPushCount(0)
             preferencesManager.saveLastSyncTimeMillis(System.currentTimeMillis())
+            Log.d(
+                SyncDiagnostics.TAG,
+                "[directDelete][synced] jobId=${job.id} jobUrl=${SyncDiagnostics.redactJobUrl(job.jobUrl)} state=${result.state}"
+            )
         }
         refreshPerJobSyncState()
         refreshCloudHealth()
+    }
+
+    private fun applyPullDiagnostics(pullResult: SupabaseRepository.PullResult) {
+        pullResult.syncedJobUrls.forEach(preferencesManager::clearLastSyncFailureReason)
+        pullResult.failedJobReasons.forEach { (jobUrl, reason) ->
+            preferencesManager.saveLastSyncFailureReason(jobUrl, reason)
+        }
+        pullResult.summaryFailureReason?.let { reason ->
+            Log.w(SyncDiagnostics.TAG, "[pull][summaryFailure] reason=$reason")
+        }
     }
 
     private fun refreshPerJobSyncState() {
@@ -527,11 +597,22 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
             val state = when {
                 lastSyncMillis == null -> JobSyncDotState.RED
                 pendingByUrl.contains(job.jobUrl) -> JobSyncDotState.YELLOW
-                job.lastModified >= lastSyncMillis -> JobSyncDotState.YELLOW
+                job.updatedAt >= lastSyncMillis -> JobSyncDotState.YELLOW
                 else -> JobSyncDotState.GREEN
             }
             job.id to state
         }
+
+        refreshSyncFailureDiagnostics()
+    }
+
+    private fun refreshSyncFailureDiagnostics() {
+        val failures = buildJobSyncFailureInfoList(
+            jobs = allJobs.value,
+            diagnosticsByUrl = preferencesManager.getAllSyncFailureReasons()
+        )
+        _syncFailureJobs.value = failures
+        _jobSyncFailureById.value = failures.associateBy { it.jobId }
     }
 
     private fun beginLoading() {

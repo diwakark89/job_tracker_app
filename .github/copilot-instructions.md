@@ -29,21 +29,22 @@
 
 **MVVM** with a single `JobViewModel` (extends `AndroidViewModel`) that is the sole source of business logic and state.
 
-```
+```text
 MainActivity
   └─ AppNavigation (NavHost)
        ├─ JobListScreen
        └─ JobDetailsScreen
 
 JobViewModel
-  ├─ JobDao (Room)          ← local persistence
-  ├─ JobScraper             ← JSoup scraping (Dispatchers.IO)
-  ├─ SyncService            ← bi-directional Google Sheets sync
-  ├─ RetrofitClient         ← Retrofit singleton (Google Apps Script web app)
-  └─ PreferencesManager     ← SharedPreferences for last-sync timestamp
+  ├─ JobDao (Room)                  ← local persistence
+  ├─ JobScraper                     ← JSoup scraping (Dispatchers.IO)
+  ├─ SupabaseRepository             ← REST sync/pull/push orchestration
+  ├─ SupabaseRealtimeManager        ← realtime event stream
+  ├─ SupabaseClient/SupabaseApiService
+  └─ PreferencesManager             ← SharedPreferences for sync metadata
 ```
 
-The **Navigation** component passes `jobId: Long` as a route argument; the destination screen looks up the job from `allJobs` (the unfiltered StateFlow) rather than using Parcelable.
+The **Navigation** component passes `jobId: String` as a route argument; the destination screen looks up the job from `allJobs` (the unfiltered StateFlow) rather than using Parcelable.
 
 ---
 
@@ -57,22 +58,22 @@ The **Navigation** component passes `jobId: Long` as a route argument; the desti
 `_isScraping` is reused for both web-scraping and sync progress; the same `LoadingOverlay` covers both operations.
 
 ### JobStatus
-The `JobStatus` enum has **6 values**: `SAVED`, `APPLIED`, `INTERVIEWING`, `OFFER`, `RESUME_REJECTED`, `INTERVIEW_REJECTED`.
+The `JobStatus` enum has **7 values**: `SAVED`, `APPLIED`, `INTERVIEW`, `INTERVIEWING`, `OFFER`, `RESUME_REJECTED`, `INTERVIEW_REJECTED`.
 
-- Always use `JobStatus.displayName()` for human-readable strings (handles hyphenated names).
-- Always use `parseJobStatus(value: String)` when converting a string back to the enum — it normalises casing, hyphens, and maps the legacy `"REJECTED"` string to `RESUME_REJECTED`.
+- Always use `JobStatus.displayName()` for human-readable strings.
+- Always use `parseJobStatus(value: String)` when converting a string back to the enum; it normalises casing/delimiters and maps legacy `REJECTED` to `RESUME_REJECTED`.
 
 ### Room / database
 - Use `@Upsert` (via `JobDao.upsertJob`) for all insert-or-update operations.
-- `jobUrl` is the **unique business key** used for sync matching (not the auto-generated `id`).
-- `lastModified = System.currentTimeMillis()` must be set on every mutation so sync conflict resolution works correctly.
-- Current DB version is **3**. Always add an explicit `Migration` object in `JobDatabase`; `fallbackToDestructiveMigration` is **not** used.
+- `jobUrl` is the **unique business key** used for sync matching.
+- `updatedAt = System.currentTimeMillis()` must be set on every mutation so sync conflict resolution works correctly.
+- Current DB version is **8**. Always add an explicit `Migration` object in `JobDatabase`; `fallbackToDestructiveMigration` is **not** used.
 
-### Google Sheets sync
-- API endpoint is a Google Apps Script web app. The `DEPLOYMENT_ID` constant in `RetrofitClient.kt` must be updated whenever the script is redeployed.
-- `SyncService.performBidirectionalSync()` matches jobs by `jobUrl`. Conflict resolution: **newer `lastModified` wins**; on a tie, the local app takes precedence.
-- Every local mutation (add, update status, edit, delete) immediately calls the corresponding Retrofit method in addition to the Room upsert.
-- The companion Google Apps Script source is `GoogleSheetUpdateScript.gs` in the project root. The expected sheet name is **"Linkedin Job Tracker Sheet"**.
+### Supabase sync
+- API endpoint is Supabase REST (`/rest/v1/jobs`, `/rest/v1/shared_links`) configured in `SupabaseClient.kt`.
+- `SupabaseApiService.upsertJob()` uses `on_conflict=job_url`.
+- Use canonical snake_case wire names in JSON (`company_name`, `job_url`, `created_at`, `modified_at`, `is_deleted`, etc.).
+- Realtime updates are consumed through `SupabaseRealtimeManager` and applied to Room.
 
 ### Web scraping
 `JobScraper` is a Kotlin `object` (singleton). It tries CSS selectors in priority order; if all fail it returns a fallback string rather than throwing. When LinkedIn changes its HTML structure, update the selector chains in `scrapeJobInfo()`.

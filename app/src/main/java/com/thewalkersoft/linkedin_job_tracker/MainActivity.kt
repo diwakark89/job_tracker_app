@@ -45,6 +45,8 @@ class MainActivity : ComponentActivity() {
                 val diagnosticsStep by viewModel.diagnosticsStep.collectAsState()
                 val manualSyncUiState by viewModel.manualSyncUiState.collectAsState()
                 val jobSyncStateById by viewModel.jobSyncStateById.collectAsState()
+                val jobSyncFailureById by viewModel.jobSyncFailureById.collectAsState()
+                val syncFailureJobs by viewModel.syncFailureJobs.collectAsState()
                 val pendingJobsByUrl by viewModel.pendingJobsByUrl.collectAsState()
                 val queueStatus by viewModel.queueStatus.collectAsState()
                 val lastSyncTime by viewModel.lastSyncTime.collectAsState()
@@ -59,6 +61,8 @@ class MainActivity : ComponentActivity() {
                     message = message,
                     cloudHealth = cloudHealth,
                     jobSyncStateById = jobSyncStateById,
+                    jobSyncFailureById = jobSyncFailureById,
+                    syncFailureJobs = syncFailureJobs,
                     isManualSyncRunning = manualSyncUiState.isRunning,
                     manualSyncProgressLabel = "Syncing: ${manualSyncUiState.acknowledged}/${manualSyncUiState.attempted} queued, failed ${manualSyncUiState.failed}",
                     queueStatus = queueStatus,
@@ -111,7 +115,7 @@ private fun JobListScreenPreview() {
                 jobDescription = "Sample job description for preview.",
                 jobTitle = "Senior Software Engineer",
                 status = JobStatus.INTERVIEW,
-                timestamp = System.currentTimeMillis()
+                createdAt = System.currentTimeMillis()
             ),
             JobEntity(
                 id = "preview-2",
@@ -120,7 +124,7 @@ private fun JobListScreenPreview() {
                 jobDescription = "Another sample description for preview.",
                 jobTitle = "Full Stack Developer",
                 status = JobStatus.SAVED,
-                timestamp = System.currentTimeMillis() - 86_400_000
+                createdAt = System.currentTimeMillis() - 86_400_000
             ),
             JobEntity(
                 id = "preview-3",
@@ -129,7 +133,7 @@ private fun JobListScreenPreview() {
                 jobDescription = "Another sample description for preview.",
                 jobTitle = "Product Manager",
                 status = JobStatus.INTERVIEW,
-                timestamp = System.currentTimeMillis() - 86_400_000
+                createdAt = System.currentTimeMillis() - 86_400_000
             ),
             JobEntity(
                 id = "preview-4",
@@ -138,7 +142,7 @@ private fun JobListScreenPreview() {
                 jobDescription = "Another sample description for preview.",
                 jobTitle = "DevOps Engineer",
                 status = JobStatus.APPLIED,
-                timestamp = System.currentTimeMillis() - 86_400_000
+                createdAt = System.currentTimeMillis() - 86_400_000
             ),
             JobEntity(
                 id = "preview-5",
@@ -147,7 +151,7 @@ private fun JobListScreenPreview() {
                 jobDescription = "Another sample description for preview.",
                 jobTitle = "Data Scientist",
                 status = JobStatus.RESUME_REJECTED,
-                timestamp = System.currentTimeMillis() - 86_400_000
+                createdAt = System.currentTimeMillis() - 86_400_000
             )
         )
 

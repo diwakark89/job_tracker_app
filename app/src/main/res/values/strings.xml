@@ -1,3 +1,29 @@
 <resources>
     <string name="app_name">LinkedIn Job Tracker</string>
+    <string name="cd_back">Back</string>
+    <string name="cd_edit">Edit</string>
+    <string name="cd_delete">Delete</string>
+    <string name="cd_open_link">Open link</string>
+    <string name="cd_cloud_status">Cloud status</string>
+    <string name="cd_cloud_error">Cloud error</string>
+    <string name="cd_sync_settings">Sync settings</string>
+    <string name="cd_synced">Synced</string>
+
+    <string name="sem_job_card_status">%1$s job card, status %2$s</string>
+    <string name="sem_sync_state">Sync state: %1$s</string>
+    <string name="sem_status_change">Status %1$s. Double tap to change</string>
+    <string name="sem_last_sync_information">Last sync information</string>
+    <string name="sem_last_sync_has_previous">Has previous sync</string>
+    <string name="sem_last_sync_never">Never synced</string>
+    <string name="sem_current_sync_status">Current sync status</string>
+    <string name="sem_sync_in_progress">Sync in progress</string>
+    <string name="sem_sync_idle">Sync idle</string>
+    <string name="sem_queue_status">Queue status</string>
+    <string name="sem_queue_empty">Queue empty</string>
+    <string name="sem_queue_one_operation">One operation queued</string>
+    <string name="sem_queue_operations">%1$d operations queued</string>
+    <string name="sem_active_sync_progress">Active sync progress</string>
+    <string name="sem_active_sync_state">%1$d of %2$d acknowledged</string>
+    <string name="sem_sync_statistics">Sync statistics</string>
+    <string name="sem_about_sync_information">About sync information</string>
 </resources>

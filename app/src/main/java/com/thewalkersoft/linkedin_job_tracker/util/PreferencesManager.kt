@@ -7,6 +7,11 @@ import com.google.gson.reflect.TypeToken
 import com.thewalkersoft.linkedin_job_tracker.sync.OutboxOperation
 import com.thewalkersoft.linkedin_job_tracker.sync.OutboxOperationType
 
+data class SyncFailureDiagnostic(
+    val reason: String,
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
 class PreferencesManager(context: Context) {
     private val sharedPreferences: SharedPreferences = context.getSharedPreferences(
         PREFERENCES_NAME,
@@ -37,6 +42,39 @@ class PreferencesManager(context: Context) {
 
     fun getLastSyncFailedPushCount(): Int {
         return sharedPreferences.getInt(KEY_LAST_SYNC_FAILED_PUSH_COUNT, 0)
+    }
+
+    fun saveLastSyncFailureReason(jobUrl: String, reason: String) {
+        if (jobUrl.isBlank() || reason.isBlank()) return
+
+        val updated = getSyncFailureDiagnostics().toMutableMap().apply {
+            put(jobUrl, SyncFailureDiagnostic(reason = reason.take(MAX_SYNC_FAILURE_REASON_LENGTH)))
+        }
+
+        saveSyncFailureDiagnostics(
+            updated.entries
+                .sortedByDescending { it.value.updatedAt }
+                .take(MAX_SYNC_FAILURE_ENTRIES)
+                .associate { it.toPair() }
+        )
+    }
+
+    fun getLastSyncFailureReason(jobUrl: String): SyncFailureDiagnostic? {
+        if (jobUrl.isBlank()) return null
+        return getSyncFailureDiagnostics()[jobUrl]
+    }
+
+    fun getAllSyncFailureReasons(): Map<String, SyncFailureDiagnostic> {
+        return getSyncFailureDiagnostics()
+    }
+
+    fun clearLastSyncFailureReason(jobUrl: String) {
+        if (jobUrl.isBlank()) return
+
+        val updated = getSyncFailureDiagnostics().toMutableMap()
+        if (updated.remove(jobUrl) != null) {
+            saveSyncFailureDiagnostics(updated)
+        }
     }
 
     fun enqueueOperation(operation: OutboxOperation): Int {
@@ -84,6 +122,7 @@ class PreferencesManager(context: Context) {
         val editor = sharedPreferences.edit()
         getOutboxKeys().forEach { key -> editor.remove(outboxItemKey(key)) }
         editor.remove(KEY_OUTBOX_KEYS)
+        editor.remove(KEY_SYNC_FAILURE_DIAGNOSTICS)
         editor.remove(KEY_METRIC_ROLLING_QUEUED)
         editor.remove(KEY_METRIC_ROLLING_COMPACTED)
         editor.remove(KEY_METRIC_ROLLING_REPLAYED)
@@ -191,6 +230,18 @@ class PreferencesManager(context: Context) {
         return runCatching { gson.fromJson<Map<Long, Int>>(json, type) }.getOrDefault(emptyMap())
     }
 
+    private fun getSyncFailureDiagnostics(): Map<String, SyncFailureDiagnostic> {
+        val json = sharedPreferences.getString(KEY_SYNC_FAILURE_DIAGNOSTICS, null) ?: return emptyMap()
+        val type = object : TypeToken<Map<String, SyncFailureDiagnostic>>() {}.type
+        return runCatching {
+            gson.fromJson<Map<String, SyncFailureDiagnostic>>(json, type)
+        }.getOrDefault(emptyMap())
+    }
+
+    private fun saveSyncFailureDiagnostics(map: Map<String, SyncFailureDiagnostic>) {
+        sharedPreferences.edit().putString(KEY_SYNC_FAILURE_DIAGNOSTICS, gson.toJson(map)).apply()
+    }
+
     private fun saveBucketedCounter(key: String, map: Map<Long, Int>) {
         sharedPreferences.edit().putString(key, gson.toJson(map)).apply()
     }
@@ -202,6 +253,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_LAST_SYNC_TIME = "last_sync_time"
         private const val KEY_LAST_SYNC_TIME_MILLIS = "last_sync_time_millis"
         private const val KEY_LAST_SYNC_FAILED_PUSH_COUNT = "last_sync_failed_push_count"
+        private const val KEY_SYNC_FAILURE_DIAGNOSTICS = "sync_failure_diagnostics"
 
         private const val KEY_OUTBOX_KEYS = "outbox_keys"
         private const val KEY_OUTBOX_ITEM_PREFIX = "outbox_item_"
@@ -215,5 +267,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_METRIC_ROLLING_REPLAYED = "metric_rolling_replayed"
 
         private const val KEY_PENDING_DIAGNOSTICS_RESET = "pending_diagnostics_reset"
+        private const val MAX_SYNC_FAILURE_ENTRIES = 100
+        private const val MAX_SYNC_FAILURE_REASON_LENGTH = 180
     }
 }

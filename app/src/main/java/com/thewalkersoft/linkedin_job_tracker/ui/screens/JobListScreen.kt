@@ -8,14 +8,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FilterList
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.thewalkersoft.linkedin_job_tracker.BuildConfig
+import com.thewalkersoft.linkedin_job_tracker.R
 import com.thewalkersoft.linkedin_job_tracker.data.JobEntity
 import com.thewalkersoft.linkedin_job_tracker.data.JobStatus
 import com.thewalkersoft.linkedin_job_tracker.data.displayName
@@ -23,6 +24,7 @@ import com.thewalkersoft.linkedin_job_tracker.ui.components.EditJobDialog
 import com.thewalkersoft.linkedin_job_tracker.ui.components.JobCard
 import com.thewalkersoft.linkedin_job_tracker.ui.components.LoadingOverlay
 import com.thewalkersoft.linkedin_job_tracker.ui.components.PendingJobCard
+import com.thewalkersoft.linkedin_job_tracker.ui.components.SyncStatusBanner
 import com.thewalkersoft.linkedin_job_tracker.ui.model.JobSyncDotState
 import kotlinx.coroutines.launch
 
@@ -40,6 +42,8 @@ fun JobListScreen(
     isManualSyncRunning: Boolean,
     manualSyncProgressLabel: String,
     pendingJobsByUrl: Map<String, Long> = emptyMap(),
+    queueStatus: Int = 0,
+    lastSyncTime: Long? = null,
     onSearchQueryChange: (String) -> Unit,
     onStatusFilterChange: (JobStatus?) -> Unit,
     onStatusChange: (JobEntity, JobStatus) -> Unit,
@@ -100,8 +104,9 @@ fun JobListScreen(
 
     Box(modifier = modifier.fillMaxSize()) {
         Scaffold(
+            containerColor = MaterialTheme.colorScheme.background,
             topBar = {
-                Column {
+                Column(modifier = Modifier.fillMaxWidth()) {
                     SearchBar(
                         inputField = {
                             SearchBarDefaults.InputField(
@@ -117,7 +122,8 @@ fun JobListScreen(
                                         } else {
                                             "Search in ${statusFilter.displayName().lowercase()}"
                                                 .replaceFirstChar { it.uppercase() }
-                                        }
+                                        },
+                                        style = MaterialTheme.typography.bodyMedium
                                     )
                                 },
                                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
@@ -174,35 +180,30 @@ fun JobListScreen(
                         },
                         expanded = isSearchActive,
                         onExpandedChange = { isSearchActive = it },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 10.dp)
                     ) {
                         // Search suggestions can be added here if needed
                     }
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        // Sync button
-                        FilledTonalButton(
-                            onClick = onManualSyncClick,
-                            enabled = !isManualSyncRunning
+                    // Sync status banner
+                    SyncStatusBanner(
+                        cloudHealth = cloudHealth,
+                        isManualSyncRunning = isManualSyncRunning,
+                        queueStatus = queueStatus,
+                        lastSyncTime = lastSyncTime,
+                        onSyncClick = onManualSyncClick,
+                        onSettingsClick = onSyncDashboardClick
+                    )
+
+                    // Debug-only diagnostics reset trigger
+                    if (BuildConfig.DEBUG) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.End
                         ) {
-                            Text(if (isManualSyncRunning) "Syncing..." else "Sync")
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        // Info button - navigate to sync dashboard
-                        IconButton(onClick = onSyncDashboardClick) {
-                            Icon(
-                                imageVector = Icons.Default.Info,
-                                contentDescription = "Sync Info",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                        // Debug-only diagnostics reset trigger
-                        if (BuildConfig.DEBUG) {
                             IconButton(onClick = onRequestDiagnosticsReset) {
                                 Icon(
                                     imageVector = Icons.Default.BugReport,
@@ -243,8 +244,8 @@ fun JobListScreen(
                         .fillMaxSize()
                         .padding(paddingValues),
                     state = listState,
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     // Pending jobs (sorted by timestamp, newest first)
                     items(
@@ -343,14 +344,14 @@ fun SwipeToDismissBox(
     modifier: Modifier = Modifier,
     onJobClick: () -> Unit = {},
 ) {
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { dismissValue ->
-            if (dismissValue == SwipeToDismissBoxValue.EndToStart) {
-                onRequestDelete()
-            }
-            false
+    val dismissState = rememberSwipeToDismissBoxState()
+
+    LaunchedEffect(dismissState.currentValue) {
+        if (dismissState.currentValue == SwipeToDismissBoxValue.EndToStart) {
+            onRequestDelete()
+            dismissState.reset()
         }
-    )
+    }
 
     SwipeToDismissBox(
         state = dismissState,
@@ -365,7 +366,7 @@ fun SwipeToDismissBox(
                 if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
                     Icon(
                         imageVector = Icons.Default.Delete,
-                        contentDescription = "Delete",
+                        contentDescription = stringResource(R.string.cd_delete),
                         tint = MaterialTheme.colorScheme.onErrorContainer
                     )
                 }

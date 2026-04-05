@@ -9,7 +9,7 @@ import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [JobEntity::class], version = 7, exportSchema = true)
+@Database(entities = [JobEntity::class], version = 8, exportSchema = true)
 @TypeConverters(Converters::class)
 abstract class JobDatabase : RoomDatabase() {
     abstract fun jobDao(): JobDao
@@ -252,13 +252,62 @@ abstract class JobDatabase : RoomDatabase() {
             }
         }
 
+        // Migration from version 7 to version 8:
+        //   - Rename timestamp (Long) -> createdAt (Long)
+        //   - Rename lastModified (Long) -> updatedAt (Long)
+        //   - Drop old createdAt TEXT and updatedAt TEXT columns (were ISO-string server timestamps)
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS jobs_new (
+                        id TEXT NOT NULL,
+                        companyName TEXT NOT NULL,
+                        jobUrl TEXT NOT NULL,
+                        jobDescription TEXT NOT NULL,
+                        jobTitle TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL,
+                        isDeleted INTEGER NOT NULL,
+                        matchScore INTEGER,
+                        language TEXT NOT NULL,
+                        prepNotes TEXT,
+                        sourcePlatform TEXT,
+                        filterReason TEXT,
+                        PRIMARY KEY(id)
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    """
+                    INSERT INTO jobs_new (
+                        id, companyName, jobUrl, jobDescription, jobTitle, status,
+                        createdAt, updatedAt, isDeleted, matchScore, language,
+                        prepNotes, sourcePlatform, filterReason
+                    )
+                    SELECT
+                        id, companyName, jobUrl, jobDescription, jobTitle, status,
+                        timestamp, lastModified, isDeleted, matchScore,
+                        COALESCE(language, 'English'),
+                        prepNotes, sourcePlatform, filterReason
+                    FROM jobs
+                    """.trimIndent()
+                )
+                database.execSQL("DROP TABLE jobs")
+                database.execSQL("ALTER TABLE jobs_new RENAME TO jobs")
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_jobs_jobUrl ON jobs(jobUrl)")
+            }
+        }
+
         val ALL_MIGRATIONS = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
             MIGRATION_3_4,
             MIGRATION_4_5,
             MIGRATION_5_6,
-            MIGRATION_6_7
+            MIGRATION_6_7,
+            MIGRATION_7_8
         )
 
         fun getDatabase(context: Context): JobDatabase {
