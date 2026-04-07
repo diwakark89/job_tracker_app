@@ -4,7 +4,7 @@
 
 ### Prerequisites
 - Android Studio Koala or later
-- Android device/emulator with API 35+
+- Android device/emulator with API 34+
 - Active internet connection
 
 ### Installation Steps
@@ -50,8 +50,7 @@ If you don't have LinkedIn installed, you can test by manually adding this code 
 ```kotlin
 // Test scraping
 viewModel.scrapeAndSaveJob(
-    url = "https://www.linkedin.com/jobs/view/123456789",
-    companyName = "Test Company"
+    url = "https://www.linkedin.com/jobs/view/123456789"
 )
 ```
 
@@ -77,9 +76,11 @@ viewModel.scrapeAndSaveJob(
 2. Select new status from dropdown:
    - 📥 **Saved** (gray) - Just saved for later
    - 📝 **Applied** (blue) - Application submitted
+   - 📞 **Interview** (yellow) - Interview round scheduled
    - 💬 **Interviewing** (yellow) - In interview process
    - ✅ **Offer** (green) - Received offer
-   - ❌ **Rejected** (red) - Not selected
+   - ❌ **Resume-Rejected** (red) - Rejected before interview
+   - ❌ **Interview-Rejected** (red) - Rejected after interview
 3. Status updates immediately
 
 #### Delete a Job
@@ -110,7 +111,8 @@ Day 7: Interview Scheduled
 
 Day 10: Results
 ├─ 1 offer → Change to "Offer" (green) ✅
-├─ 2 rejections → Change to "Rejected" (red)
+├─ 1 resume rejection → Change to "Resume-Rejected" (red)
+├─ 1 interview rejection → Change to "Interview-Rejected" (red)
 └─ Still "Interviewing" with others
 
 Week 2: Clean Up
@@ -202,30 +204,41 @@ val description = doc.select(".your-new-selector").text()
 
 ### Database Schema
 ```
-Table: jobs
-├─ id: Long (auto-increment primary key)
+Local Room table: jobs
+├─ id: String (UUID primary key)
 ├─ companyName: String (searchable)
-├─ jobUrl: String (LinkedIn URL)
+├─ jobUrl: String (LinkedIn URL, unique business key)
 ├─ jobDescription: String (scraped text)
-├─ status: String (enum converted)
-└─ timestamp: Long (milliseconds)
+├─ status: JobStatus (stored as display-name string)
+├─ createdAt: Long (epoch millis)
+└─ updatedAt: Long (epoch millis)
+
+Supabase wire table: jobs_raw
+├─ job_status (maps to local JobStatus)
+├─ pipeline_stage
+├─ content_hash
+├─ external_id
+└─ location
 ```
 
 ### Status Values
 ```kotlin
 enum class JobStatus {
-    SAVED,        // Initial state
-    APPLIED,      // Application sent
-    INTERVIEWING, // In interview process
-    OFFER,        // Offer received
-    REJECTED      // Not selected
+    SAVED,
+    APPLIED,
+    INTERVIEW,
+    INTERVIEWING,
+    OFFER,
+    RESUME_REJECTED,
+    INTERVIEW_REJECTED
 }
 ```
 
 ## 🔐 Privacy & Security
 
 ### Data Storage
-- **Local only**: No cloud sync or external servers
+- **Local-first**: Data is saved in Room first and remains usable offline
+- **Cloud sync**: Supabase sync is supported when configured
 - **Device storage**: Data saved in app's private directory
 - **No analytics**: No tracking or telemetry
 - **No permissions**: Only INTERNET for scraping

@@ -11,6 +11,7 @@ import androidx.room.PrimaryKey
 )
 data class JobEntity(
     @PrimaryKey
+    @SerializedName(value = "job_id", alternate = ["id"])
     val id: String,
     @SerializedName("company_name")
     val companyName: String,
@@ -20,15 +21,16 @@ data class JobEntity(
     val jobDescription: String,
     @SerializedName("role_title")
     val jobTitle: String = "",
+    @SerializedName(value = "job_status", alternate = ["status"])
     val status: JobStatus = JobStatus.SAVED,
-    @SerializedName("created_at")
+    @SerializedName(value = "saved_at", alternate = ["created_at"])
     val createdAt: Long = System.currentTimeMillis(),
     @SerializedName("modified_at")
     val updatedAt: Long = System.currentTimeMillis(),
     @SerializedName("is_deleted")
     val isDeleted: Boolean = false,
     @SerializedName("match_score")
-    val matchScore: Int? = null,
+    val matchScore: Int? = 90,
     val language: String = "English",
     @SerializedName("prep_notes")
     val prepNotes: String? = null,
@@ -62,5 +64,6 @@ fun JobStatus.displayName(): String {
 
 fun parseJobStatus(value: String): JobStatus {
     val normalized = value.trim().uppercase().replace("-", "_").replace(" ", "_")
+    if (normalized == "REJECTED") return JobStatus.RESUME_REJECTED
     return runCatching { JobStatus.valueOf(normalized) }.getOrDefault(JobStatus.SAVED)
 }

@@ -4,7 +4,7 @@ import com.google.gson.JsonObject
 
 /**
  * Sealed class representing typed realtime change events received from the
- * Supabase Realtime WebSocket for the `jobs` table.
+ * Supabase Realtime WebSocket for the `jobs_final` table.
  */
 sealed class RealtimeJobEvent {
     data class Insert(val record: JsonObject) : RealtimeJobEvent()

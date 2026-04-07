@@ -7,7 +7,7 @@ Android app for capturing LinkedIn job links, scraping details, and tracking the
 - Share LinkedIn URLs directly into the app via Android share intent.
 - Scrape company, title, and description using JSoup selector fallbacks.
 - Store jobs locally in Room with offline-first behavior.
-- Sync jobs bidirectionally with Supabase (`public.jobs`).
+- Sync jobs bidirectionally with Supabase (`public.jobs_raw`).
 - Receive realtime updates from Supabase and reconcile local state.
 - Filter/search by company and status in a stateless Compose UI.
 
@@ -63,6 +63,7 @@ Windows:
 ```powershell
 .\gradlew.bat build
 .\gradlew.bat test
+powershell -ExecutionPolicy Bypass -File .\tools\doc-lint.ps1
 ```
 
 Other platforms:

@@ -70,7 +70,7 @@ The `JobStatus` enum has **7 values**: `SAVED`, `APPLIED`, `INTERVIEW`, `INTERVI
 - Current DB version is **8**. Always add an explicit `Migration` object in `JobDatabase`; `fallbackToDestructiveMigration` is **not** used.
 
 ### Supabase sync
-- API endpoint is Supabase REST (`/rest/v1/jobs`, `/rest/v1/shared_links`) configured in `SupabaseClient.kt`.
+- API endpoint is Supabase REST (`/rest/v1/jobs_raw`, `/rest/v1/shared_links`) configured in `SupabaseClient.kt`.
 - `SupabaseApiService.upsertJob()` uses `on_conflict=job_url`.
 - Use canonical snake_case wire names in JSON (`company_name`, `job_url`, `created_at`, `modified_at`, `is_deleted`, etc.).
 - Realtime updates are consumed through `SupabaseRealtimeManager` and applied to Room.

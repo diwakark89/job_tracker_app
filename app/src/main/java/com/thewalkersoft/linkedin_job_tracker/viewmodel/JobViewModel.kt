@@ -333,7 +333,7 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
                     if (job.isDeleted) dao.deleteJob(job.id) else dao.upsertJob(job)
                 }
                 is RealtimeJobEvent.Delete -> {
-                    val id = event.oldRecord.get("id")?.asString
+                    val id = event.oldRecord.get("job_id")?.asString
                     if (!id.isNullOrBlank()) dao.deleteJob(id)
                 }
             }
@@ -432,7 +432,8 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
                     jobUrl = normalizedUrl,
                     jobDescription = jobInfo.description,
                     jobTitle = jobInfo.jobTitle,
-                    status = JobStatus.SAVED
+                    status = JobStatus.SAVED,
+                    matchScore = 90
                 )
                 saveJob(job)
             } catch (e: Exception) {

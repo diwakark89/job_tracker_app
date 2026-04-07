@@ -4,6 +4,9 @@ import android.util.Log
 import com.thewalkersoft.linkedin_job_tracker.client.SupabaseClient
 import com.thewalkersoft.linkedin_job_tracker.data.JobDao
 import com.thewalkersoft.linkedin_job_tracker.data.JobEntity
+import com.thewalkersoft.linkedin_job_tracker.service.JobFinalUpsertRequest
+import com.thewalkersoft.linkedin_job_tracker.service.JobRawUpsertRequest
+import com.thewalkersoft.linkedin_job_tracker.service.SharedLinkFallbackRequest
 import com.thewalkersoft.linkedin_job_tracker.service.SharedLinkRequest
 
 class SupabaseRepository(
@@ -62,23 +65,16 @@ class SupabaseRepository(
 
         Log.d(SyncDiagnostics.TAG, "[pushJob][start] jobId=${job.id} jobUrl=$redactedUrl updatedAt=${job.updatedAt}")
         return runCatching {
-            val response = SupabaseClient.instance.upsertJob(listOf(job))
-            if (!response.isSuccessful) {
-                val errorBody = response.errorBody()?.string().orEmpty()
-                val reason = SyncDiagnostics.buildFailureReason(
-                    stage = "pushJob",
-                    detail = errorBody.ifBlank { "Supabase upsert failed" },
-                    httpCode = response.code()
-                )
+            val result = upsertJobWithParentFallback(job = job, stage = "pushJob")
+            if (result.success) {
+                Log.d(SyncDiagnostics.TAG, "[pushJob][success] jobId=${job.id} jobUrl=$redactedUrl")
+            } else {
                 Log.w(
                     SyncDiagnostics.TAG,
-                    "[pushJob][failure] jobId=${job.id} jobUrl=$redactedUrl code=${response.code()} reason=$reason"
+                    "[pushJob][failure] jobId=${job.id} jobUrl=$redactedUrl reason=${result.failureReason}"
                 )
-                PushResult(success = false, failureReason = reason)
-            } else {
-                Log.d(SyncDiagnostics.TAG, "[pushJob][success] jobId=${job.id} jobUrl=$redactedUrl")
-                PushResult(success = true)
             }
+            result
         }.getOrElse {
             val reason = SyncDiagnostics.buildFailureReason(
                 stage = "pushJob",
@@ -155,21 +151,48 @@ class SupabaseRepository(
 
         Log.d(SyncDiagnostics.TAG, "[pushSharedLink][start] jobUrl=$redactedUrl")
         return runCatching {
-            val response = SupabaseClient.instance.insertSharedLink(
-                listOf(SharedLinkRequest(url = rawUrl))
-            )
+            val response = SupabaseClient.instance.insertSharedLink(listOf(SharedLinkRequest(url = rawUrl)))
             if (!response.isSuccessful) {
                 val errorBody = response.errorBody()?.string().orEmpty()
-                val reason = SyncDiagnostics.buildFailureReason(
-                    stage = "pushSharedLink",
-                    detail = errorBody.ifBlank { "Supabase shared link insert failed" },
-                    httpCode = response.code()
-                )
-                Log.w(
-                    SyncDiagnostics.TAG,
-                    "[pushSharedLink][failure] jobUrl=$redactedUrl code=${response.code()} reason=$reason"
-                )
-                PushResult(success = false, failureReason = reason)
+                if (isMissingSharedLinksStatusColumnError(response.code(), errorBody)) {
+                    Log.w(
+                        SyncDiagnostics.TAG,
+                        "[pushSharedLink][schemaDriftFallback] jobUrl=$redactedUrl retrying without status"
+                    )
+                    val fallbackResponse = SupabaseClient.instance.insertSharedLinkWithoutStatus(
+                        listOf(SharedLinkFallbackRequest(url = rawUrl))
+                    )
+                    if (fallbackResponse.isSuccessful) {
+                        Log.d(
+                            SyncDiagnostics.TAG,
+                            "[pushSharedLink][successAfterFallback] jobUrl=$redactedUrl"
+                        )
+                        PushResult(success = true)
+                    } else {
+                        val fallbackError = fallbackResponse.errorBody()?.string().orEmpty()
+                        val reason = SyncDiagnostics.buildFailureReason(
+                            stage = "pushSharedLink.retryWithoutStatus",
+                            detail = fallbackError.ifBlank { "Supabase shared link insert failed" },
+                            httpCode = fallbackResponse.code()
+                        )
+                        Log.w(
+                            SyncDiagnostics.TAG,
+                            "[pushSharedLink][failureAfterFallback] jobUrl=$redactedUrl code=${fallbackResponse.code()} reason=$reason"
+                        )
+                        PushResult(success = false, failureReason = reason)
+                    }
+                } else {
+                    val reason = SyncDiagnostics.buildFailureReason(
+                        stage = "pushSharedLink",
+                        detail = errorBody.ifBlank { "Supabase shared link insert failed" },
+                        httpCode = response.code()
+                    )
+                    Log.w(
+                        SyncDiagnostics.TAG,
+                        "[pushSharedLink][failure] jobUrl=$redactedUrl code=${response.code()} reason=$reason"
+                    )
+                    PushResult(success = false, failureReason = reason)
+                }
             } else {
                 Log.d(SyncDiagnostics.TAG, "[pushSharedLink][success] jobUrl=$redactedUrl")
                 PushResult(success = true)
@@ -245,8 +268,11 @@ class SupabaseRepository(
                     else -> {
                         // Local record wins on ties; only push when local is confidently newer.
                         if (shouldPushLocalToRemote(localJob, remoteJob)) {
-                            val response = SupabaseClient.instance.upsertJob(listOf(localJob))
-                            if (response.isSuccessful) {
+                            val result = upsertJobWithParentFallback(
+                                job = localJob,
+                                stage = "pullUploadLocalWinner"
+                            )
+                            if (result.success) {
                                 uploaded++
                                 syncedJobUrls += localJob.jobUrl
                                 Log.d(
@@ -255,16 +281,14 @@ class SupabaseRepository(
                                 )
                             } else {
                                 failedPush++
-                                val errorBody = response.errorBody()?.string().orEmpty()
-                                val reason = SyncDiagnostics.buildFailureReason(
+                                val reason = result.failureReason ?: SyncDiagnostics.buildFailureReason(
                                     stage = "pullUploadLocalWinner",
-                                    detail = errorBody.ifBlank { "Supabase upsert failed" },
-                                    httpCode = response.code()
+                                    detail = "Supabase upsert failed"
                                 )
                                 failedJobReasons[localJob.jobUrl] = reason
                                 Log.w(
                                     SyncDiagnostics.TAG,
-                                    "[pull][uploadLocalWinnerFailed] jobId=${localJob.id} jobUrl=${SyncDiagnostics.redactJobUrl(localJob.jobUrl)} code=${response.code()} reason=$reason"
+                                    "[pull][uploadLocalWinnerFailed] jobId=${localJob.id} jobUrl=${SyncDiagnostics.redactJobUrl(localJob.jobUrl)} reason=$reason"
                                 )
                             }
                         } else {
@@ -284,8 +308,11 @@ class SupabaseRepository(
             // Invariant: pull reconciliation never re-uploads a locally deleted job as active.
             localJobs.forEach { localJob ->
                 if (!remoteJobsByUrl.containsKey(localJob.jobUrl)) {
-                    val response = SupabaseClient.instance.upsertJob(listOf(localJob))
-                    if (response.isSuccessful) {
+                    val result = upsertJobWithParentFallback(
+                        job = localJob,
+                        stage = "pullUploadLocalMissingRemote"
+                    )
+                    if (result.success) {
                         uploaded++
                         syncedJobUrls += localJob.jobUrl
                         Log.d(
@@ -294,16 +321,14 @@ class SupabaseRepository(
                         )
                     } else {
                         failedPush++
-                        val errorBody = response.errorBody()?.string().orEmpty()
-                        val reason = SyncDiagnostics.buildFailureReason(
+                        val reason = result.failureReason ?: SyncDiagnostics.buildFailureReason(
                             stage = "pullUploadLocalMissingRemote",
-                            detail = errorBody.ifBlank { "Supabase upsert failed" },
-                            httpCode = response.code()
+                            detail = "Supabase upsert failed"
                         )
                         failedJobReasons[localJob.jobUrl] = reason
                         Log.w(
                             SyncDiagnostics.TAG,
-                            "[pull][uploadLocalMissingRemoteFailed] jobId=${localJob.id} jobUrl=${SyncDiagnostics.redactJobUrl(localJob.jobUrl)} code=${response.code()} reason=$reason"
+                            "[pull][uploadLocalMissingRemoteFailed] jobId=${localJob.id} jobUrl=${SyncDiagnostics.redactJobUrl(localJob.jobUrl)} reason=$reason"
                         )
                     }
                 }
@@ -374,6 +399,63 @@ class SupabaseRepository(
 
         // Within skew window — no secondary server timestamp available, skip push to avoid oscillation.
         return false
+    }
+
+    private suspend fun upsertJobWithParentFallback(job: JobEntity, stage: String): PushResult {
+        val primaryResponse = SupabaseClient.instance.upsertJob(listOf(JobFinalUpsertRequest.from(job)))
+        if (primaryResponse.isSuccessful) return PushResult(success = true)
+
+        val primaryErrorBody = primaryResponse.errorBody()?.string().orEmpty()
+        if (!isMissingJobsRawParentError(primaryResponse.code(), primaryErrorBody)) {
+            val reason = SyncDiagnostics.buildFailureReason(
+                stage = stage,
+                detail = primaryErrorBody.ifBlank { "Supabase upsert failed" },
+                httpCode = primaryResponse.code()
+            )
+            return PushResult(success = false, failureReason = reason)
+        }
+
+        Log.w(
+            SyncDiagnostics.TAG,
+            "[$stage][missingParent] jobId=${job.id} attempting jobs_raw parent upsert"
+        )
+        val parentResponse = SupabaseClient.instance.upsertRawJob(listOf(JobRawUpsertRequest.from(job)))
+        if (!parentResponse.isSuccessful) {
+            val parentErrorBody = parentResponse.errorBody()?.string().orEmpty()
+            val reason = SyncDiagnostics.buildFailureReason(
+                stage = "$stage.ensureJobsRaw",
+                detail = parentErrorBody.ifBlank { "Supabase jobs_raw upsert failed" },
+                httpCode = parentResponse.code()
+            )
+            return PushResult(success = false, failureReason = reason)
+        }
+
+        val retryResponse = SupabaseClient.instance.upsertJob(listOf(JobFinalUpsertRequest.from(job)))
+        if (retryResponse.isSuccessful) {
+            Log.d(SyncDiagnostics.TAG, "[$stage][recovered] jobId=${job.id} parentCreated=true")
+            return PushResult(success = true)
+        }
+
+        val retryErrorBody = retryResponse.errorBody()?.string().orEmpty()
+        val reason = SyncDiagnostics.buildFailureReason(
+            stage = "$stage.retry",
+            detail = retryErrorBody.ifBlank { "Supabase upsert retry failed" },
+            httpCode = retryResponse.code()
+        )
+        return PushResult(success = false, failureReason = reason)
+    }
+
+    private fun isMissingJobsRawParentError(httpCode: Int, errorBody: String): Boolean {
+        return httpCode == 409 &&
+            errorBody.contains("\"code\":\"23503\"") &&
+            errorBody.contains("jobs_raw")
+    }
+
+    private fun isMissingSharedLinksStatusColumnError(httpCode: Int, errorBody: String): Boolean {
+        return httpCode == 400 &&
+            errorBody.contains("PGRST204") &&
+            errorBody.contains("shared_links") &&
+            errorBody.contains("status")
     }
 }
 

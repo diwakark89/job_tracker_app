@@ -1,6 +1,8 @@
 package com.thewalkersoft.linkedin_job_tracker.service
 
+import com.google.gson.annotations.SerializedName
 import com.thewalkersoft.linkedin_job_tracker.data.JobEntity
+import com.thewalkersoft.linkedin_job_tracker.data.JobStatus
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.DELETE
@@ -9,28 +11,44 @@ import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Query
 
+private const val JOBS_FINAL_PATH = "rest/v1/jobs_final"
+private const val JOBS_RAW_PATH = "rest/v1/jobs_raw"
+
 interface SupabaseApiService {
-    @GET("rest/v1/jobs")
+    @GET(JOBS_FINAL_PATH)
     suspend fun getJobs(
         @Query("select") select: String = "*",
-        @Query("order") order: String = "created_at.desc"
+        @Query("order") order: String = "saved_at.desc"
     ): List<JobEntity>
 
-    @POST("rest/v1/jobs")
+    @POST(JOBS_FINAL_PATH)
     suspend fun upsertJob(
-        @Body jobs: List<JobEntity>,
-        @Query("on_conflict") onConflict: String = "job_url",
+        @Body jobs: List<JobFinalUpsertRequest>,
+        @Query("on_conflict") onConflict: String = "job_id",
         @Header("Prefer") prefer: String = "resolution=merge-duplicates"
     ): Response<Unit>
 
-    @DELETE("rest/v1/jobs")
+    @POST(JOBS_RAW_PATH)
+    suspend fun upsertRawJob(
+        @Body jobs: List<JobRawUpsertRequest>,
+        @Query("on_conflict") onConflict: String = "id",
+        @Header("Prefer") prefer: String = "resolution=merge-duplicates"
+    ): Response<Unit>
+
+    @DELETE(JOBS_FINAL_PATH)
     suspend fun deleteJobById(
-        @Query("id") idEq: String
+        @Query("job_id") jobIdEq: String
     ): Response<Unit>
 
     @POST("rest/v1/shared_links")
     suspend fun insertSharedLink(
         @Body links: List<SharedLinkRequest>,
+        @Header("Prefer") prefer: String = "return=minimal"
+    ): Response<Unit>
+
+    @POST("rest/v1/shared_links")
+    suspend fun insertSharedLinkWithoutStatus(
+        @Body links: List<SharedLinkFallbackRequest>,
         @Header("Prefer") prefer: String = "return=minimal"
     ): Response<Unit>
 }
@@ -40,3 +58,86 @@ data class SharedLinkRequest(
     val source: String = "android-share-intent",
     val status: String = "Pending"
 )
+
+data class SharedLinkFallbackRequest(
+    val url: String,
+    val source: String = "android-share-intent"
+)
+
+data class JobFinalUpsertRequest(
+    @SerializedName("job_id")
+    val jobId: String,
+    @SerializedName("company_name")
+    val companyName: String,
+    @SerializedName("job_url")
+    val jobUrl: String,
+    @SerializedName("description")
+    val jobDescription: String,
+    @SerializedName("role_title")
+    val jobTitle: String,
+    @SerializedName("job_status")
+    val status: JobStatus,
+    val language: String,
+    @SerializedName("saved_at")
+    val savedAt: Long,
+    @SerializedName("modified_at")
+    val updatedAt: Long,
+    @SerializedName("is_deleted")
+    val isDeleted: Boolean,
+    @SerializedName("match_score")
+    val matchScore: Int,
+    val tags: List<String>? = null
+) {
+    companion object {
+        fun from(job: JobEntity): JobFinalUpsertRequest = JobFinalUpsertRequest(
+            jobId = job.id,
+            companyName = job.companyName,
+            jobUrl = job.jobUrl,
+            jobDescription = job.jobDescription,
+            jobTitle = job.jobTitle,
+            status = job.status,
+            language = job.language,
+            savedAt = job.createdAt,
+            updatedAt = job.updatedAt,
+            isDeleted = job.isDeleted,
+            matchScore = job.matchScore ?: 90
+        )
+    }
+}
+
+data class JobRawUpsertRequest(
+    val id: String,
+    @SerializedName("company_name")
+    val companyName: String,
+    @SerializedName("job_url")
+    val jobUrl: String,
+    @SerializedName("description")
+    val jobDescription: String,
+    @SerializedName("role_title")
+    val jobTitle: String,
+    @SerializedName("job_status")
+    val status: JobStatus,
+    val language: String,
+    @SerializedName("created_at")
+    val createdAt: Long,
+    @SerializedName("modified_at")
+    val updatedAt: Long,
+    @SerializedName("is_deleted")
+    val isDeleted: Boolean
+) {
+    companion object {
+        fun from(job: JobEntity): JobRawUpsertRequest = JobRawUpsertRequest(
+            id = job.id,
+            companyName = job.companyName,
+            jobUrl = job.jobUrl,
+            jobDescription = job.jobDescription,
+            jobTitle = job.jobTitle,
+            status = job.status,
+            language = job.language,
+            createdAt = job.createdAt,
+            updatedAt = job.updatedAt,
+            isDeleted = job.isDeleted
+        )
+    }
+}
+

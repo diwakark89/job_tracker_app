@@ -21,13 +21,13 @@ import java.util.concurrent.atomic.AtomicInteger
 /**
  * Manages a persistent WebSocket connection to Supabase Realtime using the
  * Phoenix channel protocol. Subscribes to all INSERT / UPDATE / DELETE events
- * on the `jobs` table and emits them as a [SharedFlow].
+ * on the `jobs_final` table and emits them as a [SharedFlow].
  *
  * NOTE: Column names in the realtime payload match the actual Postgres column
- * names. If the Supabase table was created with unquoted camelCase identifiers
- * (e.g. `companyName`), Postgres stores them as lowercase (`companyname`).
- * If the realtime JSON keys do not match [JobEntity] field names, add
- * `@SerializedName("companyname")` annotations to the affected fields.
+ * names. The `jobs_final` table uses snake_case column names (`company_name`,
+ * `job_url`, `job_id`, etc.), matching the `@SerializedName` annotations in
+ * `JobEntity`. `REPLICA IDENTITY FULL` is enabled on `jobs_final` so that
+ * DELETE events include all columns (specifically `job_id`).
  */
 class SupabaseRealtimeManager {
 
@@ -83,22 +83,22 @@ class SupabaseRealtimeManager {
 
     private val socketListener = object : WebSocketListener() {
 
-        override fun onOpen(ws: WebSocket, response: Response) {
+        override fun onOpen(webSocket: WebSocket, response: Response) {
             Log.d(TAG, "WebSocket connected")
             _connectionState.value = RealtimeConnectionState.CONNECTED
-            joinJobsChannel(ws)
+            joinJobsChannel(webSocket)
         }
 
-        override fun onMessage(ws: WebSocket, text: String) {
-            handleMessage(ws, text)
+        override fun onMessage(webSocket: WebSocket, text: String) {
+            handleMessage(webSocket, text)
         }
 
-        override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
+        override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
             Log.w(TAG, "Connection failure: ${t.message}")
             _connectionState.value = RealtimeConnectionState.ERROR
         }
 
-        override fun onClosed(ws: WebSocket, code: Int, reason: String) {
+        override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
             Log.d(TAG, "WebSocket closed ($code): $reason")
             _connectionState.value = RealtimeConnectionState.DISCONNECTED
         }
@@ -111,13 +111,13 @@ class SupabaseRealtimeManager {
 
         val payload = """
             {
-              "topic":"realtime:public:jobs",
+              "topic":"$REALTIME_TOPIC",
               "event":"phx_join",
               "payload":{
                 "config":{
                   "broadcast":{"self":false},
                   "presence":{"key":""},
-                  "postgres_changes":[{"event":"*","schema":"public","table":"jobs"}]
+                  "postgres_changes":[{"event":"*","schema":"public","table":"$REALTIME_TABLE"}]
                 },
                 "access_token":"$key"
               },
@@ -125,7 +125,7 @@ class SupabaseRealtimeManager {
             }
         """.trimIndent()
         ws.send(payload)
-        Log.d(TAG, "Sent phx_join for jobs channel")
+        Log.d(TAG, "Sent phx_join for $REALTIME_TABLE channel")
     }
 
     private fun handleMessage(ws: WebSocket, text: String) {
@@ -166,6 +166,8 @@ class SupabaseRealtimeManager {
     }
 
     companion object {
+        private const val REALTIME_TOPIC = "realtime:public:jobs_final"
+        private const val REALTIME_TABLE = "jobs_final"
         private const val TAG = "SupabaseRealtime"
     }
 }

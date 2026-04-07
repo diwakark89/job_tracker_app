@@ -1,12 +1,14 @@
 # Supabase CRUD Operations Reference
 
-> **Last updated:** 2026-04-03
+> **Last updated:** 2026-04-05
 > **Companion to:** [`SUPABASE_SCHEMA.md`](./SUPABASE_SCHEMA.md)
+> **Operator runbook:** [`SUPABASE_JOBS_RAW_CUTOVER_RUNBOOK.md`](./SUPABASE_JOBS_RAW_CUTOVER_RUNBOOK.md)
 >
-> This document describes **exactly how the Android app performs every Create,
-> Read, Update, and Delete operation** — what triggers each operation, how local
-> Room storage is mutated first, what HTTP request is sent to Supabase, what
-> response is expected, and how failures are handled via the offline outbox.
+> This document describes **exactly how the Android app performs core Create,
+> Read, Update, and Delete operations**, plus the Phase 2-7 pipeline table
+> operations — what triggers each operation, how local Room storage is mutated
+> first (for app flows), what HTTP request is sent to Supabase, what response is
+> expected, and how failures are handled via the offline outbox.
 
 ---
 
@@ -27,6 +29,11 @@
 13. [Realtime Event Processing](#13-realtime-event-processing)
 14. [Outbox Compaction Rules](#14-outbox-compaction-rules)
 15. [Error Response Handling](#15-error-response-handling)
+16. [PIPELINE — Upsert Enrichment (jobs_enriched)](#16-pipeline--upsert-enrichment-jobs_enriched)
+17. [PIPELINE — Insert Decision (job_decisions)](#17-pipeline--insert-decision-job_decisions)
+18. [PIPELINE — Upsert Approval (job_approvals)](#18-pipeline--upsert-approval-job_approvals)
+19. [PIPELINE — Upsert Final Record (jobs_final)](#19-pipeline--upsert-final-record-jobs_final)
+20. [PIPELINE — Update Singleton Metrics (job_metrics)](#20-pipeline--update-singleton-metrics-job_metrics)
 
 ---
 
@@ -60,7 +67,7 @@ User Action (UI / Share Intent)
 ```
 App Launch / Manual Sync
         │
-        ├──[pull]──► GET /rest/v1/jobs ──► Merge into Room
+        ├──[pull]──► GET /rest/v1/jobs_raw ──► Merge into Room
         │
         └──[live] ──► WebSocket subscription ──► Apply INSERT/UPDATE/DELETE to Room
 ```
@@ -112,7 +119,7 @@ UI via the Room Flow.
 ### 3.4 HTTP Request
 
 ```http
-POST /rest/v1/jobs?on_conflict=job_url
+POST /rest/v1/jobs_raw?on_conflict=job_url
 Prefer: resolution=merge-duplicates
 ```
 
@@ -126,12 +133,12 @@ Prefer: resolution=merge-duplicates
     "role_title": "Senior Android Engineer",
     "description": "We are looking for an experienced Android engineer to join our team…",
     "job_url": "https://www.linkedin.com/jobs/view/1234567890",
-    "status": "Saved",
+    "job_status": "Saved",
     "language": "English",
-    "match_score": null,
-    "prep_notes": null,
-    "source_platform": null,
-    "filter_reason": null,
+    "pipeline_stage": "SCRAPED",
+    "content_hash": null,
+    "external_id": null,
+    "location": null,
     "created_at": "2026-04-03T09:00:00.000Z",
     "modified_at": "2026-04-03T09:00:00.000Z",
     "is_deleted": false
@@ -144,7 +151,8 @@ Prefer: resolution=merge-duplicates
 - `created_at` and `modified_at` are epoch-millisecond `Long` values in Room,
   serialised to ISO-8601 UTC strings (`"2026-04-03T09:00:00.000Z"`) by the
   Gson `timestampAdapter` before sending.
-- `status` is the display-name form (e.g. `"Saved"`, not `"SAVED"`).
+- `job_status` is the display-name form (e.g. `"Saved"`, not `"SAVED"`).
+- Android raw writes intentionally omit local-only fields: `source_platform`, `match_score`, `prep_notes`, and `filter_reason`.
 - `scrape_run_id` is **never sent** by the Android app — it is a server/pipeline-only field.
 
 ### 3.5 Expected response
@@ -252,7 +260,7 @@ Prefer: return=minimal
 
 ```
 SupabaseRepository.pullCloudJobsToRoom()
-   ├─ GET /rest/v1/jobs?select=*&order=created_at.desc   ← fetch all remote rows
+   ├─ GET /rest/v1/jobs_raw?select=*&order=created_at.desc   ← fetch all remote rows
    ├─ dao.getAllJobsOnce()                                ← fetch all local rows
    └─ For each remote/local pair → reconcile (see §11 in schema doc)
 ```
@@ -260,7 +268,7 @@ SupabaseRepository.pullCloudJobsToRoom()
 ### 5.3 HTTP Request
 
 ```http
-GET /rest/v1/jobs?select=*&order=created_at.desc
+GET /rest/v1/jobs_raw?select=*&order=created_at.desc
 ```
 
 No request body.
@@ -277,12 +285,12 @@ No request body.
     "role_title": "Senior Android Engineer",
     "description": "We are looking for…",
     "job_url": "https://www.linkedin.com/jobs/view/1234567890",
-    "status": "Applied",
+    "job_status": "Applied",
     "language": "English",
-    "match_score": 85,
-    "prep_notes": "Research their Kotlin migration project.",
-    "source_platform": "LinkedIn",
-    "filter_reason": null,
+    "pipeline_stage": "SCRAPED",
+    "content_hash": null,
+    "external_id": null,
+    "location": null,
     "scrape_run_id": null,
     "created_at": "2026-04-01T09:00:00.479861+00:00",
     "modified_at": "2026-04-03T06:15:00.000000+00:00",
@@ -295,7 +303,7 @@ No request body.
 - `created_at` / `modified_at` arrive as ISO-8601 strings with offset notation
   (`+00:00` or `Z`) and are parsed to epoch-millisecond `Long` by the Gson
   `timestampAdapter` in `SupabaseClient`.
-- `status` strings like `"Resume-Rejected"` are mapped back to `JobStatus.RESUME_REJECTED`
+- `job_status` strings like `"Resume-Rejected"` are mapped back to `JobStatus.RESUME_REJECTED`
   via `parseJobStatus()`.
 - **All rows** (including soft-deleted `is_deleted = true` tombstones) are
   returned. The app stores tombstones in Room so that the sync loop does not
@@ -306,9 +314,10 @@ No request body.
 ```
 Remote row exists, local does NOT      → dao.upsertJob(remoteJob)              [insert]
 Remote newer than local (> 2 min gap)  → dao.upsertJob(remoteJob.copy(id=localJob.id)) [overwrite]
-Local newer than remote (> 2 min gap)  → POST /rest/v1/jobs (push local up)   [upload]
-Exact tie / within 2-min skew window   → keep local as-is                     [preserve]
-Local row exists, remote does NOT      → POST /rest/v1/jobs (push local up)   [upload]
+Local newer than remote (> 2 min gap)  → POST /rest/v1/jobs_raw (push local up)   [upload]
+Exact tie                               → dao.upsertJob(remoteJob.copy(id=localJob.id)) [remote wins]
+Within 2-min skew window                → keep local as-is                               [preserve]
+Local row exists, remote does NOT      → POST /rest/v1/jobs_raw (push local up)   [upload]
 ```
 
 ---
@@ -327,14 +336,14 @@ Then sends the channel join message:
 
 ```json
 {
-  "topic": "realtime:public:jobs",
+  "topic": "realtime:public:jobs_raw",
   "event": "phx_join",
   "payload": {
     "config": {
       "broadcast": { "self": false },
       "presence": { "key": "" },
       "postgres_changes": [
-        { "event": "*", "schema": "public", "table": "jobs" }
+        { "event": "*", "schema": "public", "table": "jobs_raw" }
       ]
     },
     "access_token": "<ANON_KEY>"
@@ -348,24 +357,24 @@ Then sends the channel join message:
 ```json
 {
   "event": "postgres_changes",
-  "topic": "realtime:public:jobs",
+  "topic": "realtime:public:jobs_raw",
   "payload": {
     "data": {
       "eventType": "INSERT",
       "schema": "public",
-      "table": "jobs",
+      "table": "jobs_raw",
       "new": {
         "id": "550e8400-e29b-41d4-a716-446655440000",
         "company_name": "Acme Corp",
         "role_title": "Senior Android Engineer",
         "description": "Full description…",
         "job_url": "https://www.linkedin.com/jobs/view/1234567890",
-        "status": "Saved",
+        "job_status": "Saved",
         "language": "English",
-        "match_score": null,
-        "prep_notes": null,
-        "source_platform": null,
-        "filter_reason": null,
+        "pipeline_stage": "SCRAPED",
+        "content_hash": null,
+        "external_id": null,
+        "location": null,
         "scrape_run_id": null,
         "created_at": "2026-04-03T09:00:00.000000+00:00",
         "modified_at": "2026-04-03T09:00:00.000000+00:00",
@@ -389,13 +398,13 @@ If `is_deleted = true`, `dao.deleteJob(job.id)` is called instead.
     "data": {
       "eventType": "UPDATE",
       "schema": "public",
-      "table": "jobs",
+      "table": "jobs_raw",
       "new": {
         "id": "550e8400-e29b-41d4-a716-446655440000",
-        "status": "Interview",
+        "job_status": "Interview",
         "modified_at": "2026-04-03T10:30:00.000000+00:00",
-        "is_deleted": false
-        // ... all other columns included in full row
+        "is_deleted": false,
+        "other_fields_omitted_for_brevity": "..."
       },
       "old": {
         "id": "550e8400-e29b-41d4-a716-446655440000"
@@ -417,7 +426,7 @@ If `is_deleted = true`, `dao.deleteJob(job.id)` is called (immediate local remov
     "data": {
       "eventType": "DELETE",
       "schema": "public",
-      "table": "jobs",
+      "table": "jobs_raw",
       "new": {},
       "old": {
         "id": "550e8400-e29b-41d4-a716-446655440000"
@@ -449,7 +458,7 @@ JobViewModel.updateJobStatus(job, newStatus)
 ### 7.3 HTTP Request
 
 Identical endpoint and headers as [§3.4](#34-http-request). The full job
-object is sent — not a partial/PATCH. Only `status` and `modified_at` differ
+object is sent — not a partial/PATCH. Only `job_status` and `modified_at` differ
 from the original:
 
 ```json
@@ -460,12 +469,12 @@ from the original:
     "role_title": "Senior Android Engineer",
     "description": "Full description…",
     "job_url": "https://www.linkedin.com/jobs/view/1234567890",
-    "status": "Interview",
+    "job_status": "Interview",
     "language": "English",
-    "match_score": 85,
-    "prep_notes": "Prepped for technical round.",
-    "source_platform": "LinkedIn",
-    "filter_reason": null,
+    "pipeline_stage": "SCRAPED",
+    "content_hash": null,
+    "external_id": null,
+    "location": null,
     "created_at": "2026-04-01T09:00:00.000Z",
     "modified_at": "2026-04-03T10:30:00.000Z",
     "is_deleted": false
@@ -518,12 +527,12 @@ Same endpoint as [§3.4](#34-http-request). Full row is sent with updated fields
     "role_title": "Lead Android Engineer",
     "description": "Updated description after re-reading the posting…",
     "job_url": "https://www.linkedin.com/jobs/view/1234567890",
-    "status": "Applied",
+    "job_status": "Applied",
     "language": "English",
-    "match_score": 85,
-    "prep_notes": null,
-    "source_platform": "LinkedIn",
-    "filter_reason": null,
+    "pipeline_stage": "SCRAPED",
+    "content_hash": null,
+    "external_id": null,
+    "location": null,
     "created_at": "2026-04-01T09:00:00.000Z",
     "modified_at": "2026-04-03T11:00:00.000Z",
     "is_deleted": false
@@ -565,12 +574,12 @@ Same upsert endpoint as [§3.4](#34-http-request), with `"is_deleted": false`:
     "role_title": "Senior Android Engineer",
     "description": "Full description…",
     "job_url": "https://www.linkedin.com/jobs/view/1234567890",
-    "status": "Saved",
+    "job_status": "Saved",
     "language": "English",
-    "match_score": null,
-    "prep_notes": null,
-    "source_platform": null,
-    "filter_reason": null,
+    "pipeline_stage": "SCRAPED",
+    "content_hash": null,
+    "external_id": null,
+    "location": null,
     "created_at": "2026-04-01T09:00:00.000Z",
     "modified_at": "2026-04-03T12:00:00.000Z",
     "is_deleted": false
@@ -603,7 +612,7 @@ JobViewModel.deleteJob(jobId)
 ### 10.3 HTTP Request (soft delete upsert)
 
 ```http
-POST /rest/v1/jobs?on_conflict=job_url
+POST /rest/v1/jobs_raw?on_conflict=job_url
 Prefer: resolution=merge-duplicates
 ```
 
@@ -615,12 +624,12 @@ Prefer: resolution=merge-duplicates
     "role_title": "Senior Android Engineer",
     "description": "Full description…",
     "job_url": "https://www.linkedin.com/jobs/view/1234567890",
-    "status": "Applied",
+    "job_status": "Applied",
     "language": "English",
-    "match_score": 85,
-    "prep_notes": null,
-    "source_platform": "LinkedIn",
-    "filter_reason": null,
+    "pipeline_stage": "SCRAPED",
+    "content_hash": null,
+    "external_id": null,
+    "location": null,
     "created_at": "2026-04-01T09:00:00.000Z",
     "modified_at": "2026-04-03T13:00:00.000Z",
     "is_deleted": true
@@ -650,7 +659,7 @@ Supabase table. This is called from `queueOrPushDelete()` in the ViewModel
 ### 11.1 HTTP Request
 
 ```http
-DELETE /rest/v1/jobs?id=eq.550e8400-e29b-41d4-a716-446655440000
+DELETE /rest/v1/jobs_raw?id=eq.550e8400-e29b-41d4-a716-446655440000
 ```
 
 No request body.
@@ -709,12 +718,12 @@ OutboxSyncWorker.doWork()
 
 ### 12.3 Worker output data
 
-```kotlin
+```text
 workDataOf(
-  "attempted"     to <Int>,   // total operations attempted
-  "acknowledged"  to <Int>,   // operations that succeeded
-  "failed"        to <Int>,   // operations that failed
-  "pulled_updates" to <Int>   // rows inserted/updated from pull
+  "attempted" to 12,
+  "acknowledged" to 10,
+  "failed" to 2,
+  "pulled_updates" to 7
 )
 ```
 
@@ -769,7 +778,7 @@ only one network call is made when connectivity is restored.
   "code": "23503",
   "details": null,
   "hint": null,
-  "message": "insert or update on table \"jobs\" violates foreign key constraint"
+  "message": "insert or update on table \"jobs_raw\" violates foreign key constraint"
 }
 ```
 
@@ -784,7 +793,7 @@ indicator (red/yellow dot on the job card).
 "<stage>: HTTP <code>: <errorBody>"
 
 Examples:
-  "pushJob: HTTP 422: insert or update on table jobs violates check constraint"
+  "pushJob: HTTP 422: insert or update on table jobs_raw violates check constraint"
   "outboxUpsert: Local job missing for queued replay"
   "pullUploadLocalWinner: HTTP 503: Service Unavailable"
 ```
@@ -797,3 +806,194 @@ Examples:
 | 🟡 Yellow | Job has a pending outbox entry, OR `updatedAt ≥ lastSyncTime` |
 | 🔴 Red | No successful sync has ever completed (`lastSyncTime == null`) |
 
+---
+
+## 16. PIPELINE — Upsert Enrichment (jobs_enriched)
+
+### 16.1 Trigger
+
+Pipeline enrichment service finishes structured extraction for one `jobs_raw` row.
+
+### 16.2 HTTP Request
+
+```http
+POST /rest/v1/jobs_enriched?on_conflict=job_id
+Prefer: resolution=merge-duplicates
+```
+
+### 16.3 Request body
+
+```json
+[
+  {
+    "job_id": "550e8400-e29b-41d4-a716-446655440000",
+    "tech_stack": ["Kotlin", "Jetpack Compose", "Room"],
+    "experience_level": "Senior",
+    "remote_type": "Hybrid",
+    "visa_sponsorship": false,
+    "english_friendly": true
+  }
+]
+```
+
+### 16.4 Expected response
+
+`204 No Content`
+
+### 16.5 Constraints to respect
+
+- `job_id` must already exist in `public.jobs_raw`.
+- `job_id` is unique in this table (one enrichment row per job).
+
+---
+
+## 17. PIPELINE — Insert Decision (job_decisions)
+
+### 17.1 Trigger
+
+AI decision engine scores a job and emits a decision.
+
+### 17.2 HTTP Request
+
+```http
+POST /rest/v1/job_decisions
+Prefer: return=minimal
+```
+
+### 17.3 Request body
+
+```json
+[
+  {
+    "job_id": "550e8400-e29b-41d4-a716-446655440000",
+    "match_score": 0.87,
+    "decision": "AUTO_APPROVE",
+    "reason": "Strong match on required Android stack and seniority.",
+    "confidence": 0.91
+  }
+]
+```
+
+### 17.4 Expected response
+
+`201 Created` (or `204` with `Prefer: return=minimal`)
+
+### 17.5 Constraints to respect
+
+- `decision` must be one of `AUTO_APPROVE`, `REVIEW`, `REJECT`.
+- Use INSERT semantics for history preservation (multiple decisions per job allowed).
+
+---
+
+## 18. PIPELINE — Upsert Approval (job_approvals)
+
+### 18.1 Trigger
+
+Human approval step completes for a decision (Telegram/manual review).
+
+### 18.2 HTTP Request
+
+```http
+POST /rest/v1/job_approvals?on_conflict=decision_id
+Prefer: resolution=merge-duplicates
+```
+
+### 18.3 Request body
+
+```json
+[
+  {
+    "job_id": "550e8400-e29b-41d4-a716-446655440000",
+    "decision_id": "66f2f0c8-8f57-4e75-84bd-5f1d9b301111",
+    "user_action": "APPROVED",
+    "approved_at": "2026-04-05T12:30:00.000Z"
+  }
+]
+```
+
+### 18.4 Expected response
+
+`204 No Content`
+
+### 18.5 Constraints to respect
+
+- `decision_id` must exist in `public.job_decisions`.
+- `decision_id` is unique (one approval row per decision).
+- `user_action` must be `APPROVED`, `REJECTED`, or `PENDING`.
+
+---
+
+## 19. PIPELINE — Upsert Final Record (jobs_final)
+
+### 19.1 Trigger
+
+A job is accepted as final output after decision + approval logic.
+
+### 19.2 HTTP Request
+
+```http
+POST /rest/v1/jobs_final?on_conflict=job_id
+Prefer: resolution=merge-duplicates
+```
+
+### 19.3 Request body
+
+```json
+[
+  {
+    "job_id": "550e8400-e29b-41d4-a716-446655440000",
+    "company_name": "Acme Corp",
+    "role_title": "Senior Android Engineer",
+    "job_url": "https://www.linkedin.com/jobs/view/1234567890",
+    "description": "We are looking for an experienced Android engineer to join our team…",
+    "match_score": 0.87,
+    "tags": ["android", "kotlin", "senior"]
+  }
+]
+```
+
+### 19.4 Expected response
+
+`204 No Content`
+
+### 19.5 Constraints to respect
+
+- `job_id` is unique in `jobs_final` (strict one final row per raw job).
+- `job_id` must exist in `public.jobs_raw`.
+- `description` is optional and may store the final projected job description.
+
+---
+
+## 20. PIPELINE — Update Singleton Metrics (job_metrics)
+
+### 20.1 Trigger
+
+Pipeline run completes and cumulative counters need refresh.
+
+### 20.2 HTTP Request
+
+```http
+PATCH /rest/v1/job_metrics?id=eq.1
+```
+
+### 20.3 Request body
+
+```json
+{
+  "total_scraped": 1200,
+  "total_approved": 145,
+  "total_rejected": 780,
+  "updated_at": "2026-04-05T13:00:00.000Z"
+}
+```
+
+### 20.4 Expected response
+
+`204 No Content`
+
+### 20.5 Singleton guard rules
+
+- Only row `id = 1` is valid (`CHECK (id = 1)`).
+- Seed row should be created once by migration using:
+  - `INSERT INTO public.job_metrics (id) VALUES (1) ON CONFLICT (id) DO NOTHING;`
+- Counters must remain non-negative.
