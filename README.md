@@ -1,4 +1,4 @@
-# LinkedIn Job Tracker Pro
+# Job Tracker
 
 Android app for capturing LinkedIn job links, scraping details, and tracking the lifecycle of applications with local Room storage and Supabase cloud sync.
 

@@ -5,20 +5,52 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- LinkedIn blue gradient background -->
-    <path
-        android:pathData="M0,0h108v108h-108z">
+
+    <!-- Layer 1: Deep navy-to-rich-blue premium gradient base -->
+    <path android:pathData="M0,0h108v108h-108z">
         <aapt:attr name="android:fillColor">
             <gradient
-                android:startY="0"
                 android:startX="0"
-                android:endY="108"
+                android:startY="0"
                 android:endX="108"
+                android:endY="108"
                 android:type="linear">
-                <item android:offset="0" android:color="#FF0A7BB8"/>
-                <item android:offset="1" android:color="#FF0A5A8F"/>
+                <item android:offset="0"   android:color="#FF0D2137"/>
+                <item android:offset="0.5" android:color="#FF0C3D6B"/>
+                <item android:offset="1"   android:color="#FF0A5A8F"/>
             </gradient>
         </aapt:attr>
     </path>
+
+    <!-- Layer 2: Glassmorphism sheen — soft white radial highlight, top-left -->
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="20"
+                android:centerY="20"
+                android:gradientRadius="78"
+                android:type="radial">
+                <item android:offset="0"    android:color="#26FFFFFF"/>
+                <item android:offset="0.45" android:color="#0DFFFFFF"/>
+                <item android:offset="1"    android:color="#00FFFFFF"/>
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Layer 3: Subtle bottom-right depth vignette -->
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="54"
+                android:startY="108"
+                android:endX="54"
+                android:endY="36"
+                android:type="linear">
+                <item android:offset="0" android:color="#1A000000"/>
+                <item android:offset="1" android:color="#00000000"/>
+            </gradient>
+        </aapt:attr>
+    </path>
+
 </vector>
 

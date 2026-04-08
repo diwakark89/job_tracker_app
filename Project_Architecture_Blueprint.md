@@ -1,7 +1,7 @@
 # Project Architecture Blueprint
 
 Generated on: 2026-04-03
-Project: LinkedIn Job Tracker Pro
+Project: Job Tracker
 
 ## 1) Active Architecture Snapshot
 

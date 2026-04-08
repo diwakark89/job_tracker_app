@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-LinkedIn Job Tracker Pro is a single-module Android app for saving and tracking LinkedIn applications. Users share job links from Android share intent, the app scrapes metadata with JSoup, stores data in Room, and syncs with Supabase.
+Job Tracker is a single-module Android app for saving and tracking LinkedIn applications. Users share job links from Android share intent, the app scrapes metadata with JSoup, stores data in Room, and syncs with Supabase.
 
 **Key technologies:** Kotlin, Jetpack Compose, Room (KSP), Retrofit, OkHttp, JSoup, Navigation Compose, WorkManager, Supabase REST/Realtime.
 

@@ -5,7 +5,7 @@
 >
 > This document is the single source of truth for any developer who wants to build a
 > new client (web, iOS, desktop, pipeline, etc.) that reads from or writes to the
-> same Supabase backend used by the LinkedIn Job Tracker Android app.
+> same Supabase backend used by the Job Tracker Android app.
 >
 > **See also:** [`SUPABASE_CRUD_OPERATIONS.md`](./SUPABASE_CRUD_OPERATIONS.md) — exact HTTP
 > requests, response payloads, and step-by-step flows for every Create / Read / Update / Delete operation.

@@ -265,7 +265,7 @@ A: Yes, after testing. Follow the checklist.
 
 ---
 
-**Congratulations! Your LinkedIn Job Tracker is now enhanced with three powerful features.**
+**Congratulations! Your Job Tracker is now enhanced with three powerful features.**
 
 🚀 **Ready to ship?** Start with the deployment guide.  
 🧪 **Need to test?** Follow the testing guide.  

@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">LinkedIn Job Tracker</string>
+    <string name="app_name">Job Tracker</string>
     <string name="cd_back">Back</string>
     <string name="cd_edit">Edit</string>
     <string name="cd_delete">Delete</string>

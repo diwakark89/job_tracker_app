@@ -1,4 +1,4 @@
-# Quick Start Guide - LinkedIn Job Tracker Pro
+# Quick Start Guide - Job Tracker
 
 ## 🚀 Getting Started
 
@@ -36,7 +36,7 @@
 1. Open LinkedIn mobile app
 2. Find any job posting
 3. Tap the **Share** button
-4. Select **LinkedIn Job Tracker Pro** from the share menu
+5. Select **Job Tracker** from the share menu
 5. The app will:
    - Open automatically
    - Show loading overlay

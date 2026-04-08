@@ -1,4 +1,4 @@
-# LinkedIn Job Tracker Pro – Copilot Instructions
+# Job Tracker – Copilot Instructions
 
 ## Build & Test Commands
 
