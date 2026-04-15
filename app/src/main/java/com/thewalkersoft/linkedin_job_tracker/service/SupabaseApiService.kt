@@ -12,7 +12,6 @@ import retrofit2.http.POST
 import retrofit2.http.Query
 
 private const val JOBS_FINAL_PATH = "rest/v1/jobs_final"
-private const val JOBS_RAW_PATH = "rest/v1/jobs_raw"
 
 interface SupabaseApiService {
     @GET(JOBS_FINAL_PATH)
@@ -25,13 +24,6 @@ interface SupabaseApiService {
     suspend fun upsertJob(
         @Body jobs: List<JobFinalUpsertRequest>,
         @Query("on_conflict") onConflict: String = "job_id",
-        @Header("Prefer") prefer: String = "resolution=merge-duplicates"
-    ): Response<Unit>
-
-    @POST(JOBS_RAW_PATH)
-    suspend fun upsertRawJob(
-        @Body jobs: List<JobRawUpsertRequest>,
-        @Query("on_conflict") onConflict: String = "id",
         @Header("Prefer") prefer: String = "resolution=merge-duplicates"
     ): Response<Unit>
 
@@ -101,42 +93,6 @@ data class JobFinalUpsertRequest(
             updatedAt = job.updatedAt,
             isDeleted = job.isDeleted,
             matchScore = job.matchScore ?: 90
-        )
-    }
-}
-
-data class JobRawUpsertRequest(
-    val id: String,
-    @SerializedName("company_name")
-    val companyName: String,
-    @SerializedName("job_url")
-    val jobUrl: String,
-    @SerializedName("description")
-    val jobDescription: String,
-    @SerializedName("role_title")
-    val jobTitle: String,
-    @SerializedName("job_status")
-    val status: JobStatus,
-    val language: String,
-    @SerializedName("created_at")
-    val createdAt: Long,
-    @SerializedName("modified_at")
-    val updatedAt: Long,
-    @SerializedName("is_deleted")
-    val isDeleted: Boolean
-) {
-    companion object {
-        fun from(job: JobEntity): JobRawUpsertRequest = JobRawUpsertRequest(
-            id = job.id,
-            companyName = job.companyName,
-            jobUrl = job.jobUrl,
-            jobDescription = job.jobDescription,
-            jobTitle = job.jobTitle,
-            status = job.status,
-            language = job.language,
-            createdAt = job.createdAt,
-            updatedAt = job.updatedAt,
-            isDeleted = job.isDeleted
         )
     }
 }

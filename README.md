@@ -7,7 +7,7 @@ Android app for capturing LinkedIn job links, scraping details, and tracking the
 - Share LinkedIn URLs directly into the app via Android share intent.
 - Scrape company, title, and description using JSoup selector fallbacks.
 - Store jobs locally in Room with offline-first behavior.
-- Sync jobs bidirectionally with Supabase (`public.jobs_raw`).
+- Sync jobs bidirectionally with Supabase (`public.jobs_final`).
 - Receive realtime updates from Supabase and reconcile local state.
 - Filter/search by company and status in a stateless Compose UI.
 
@@ -50,7 +50,7 @@ app/src/main/java/com/thewalkersoft/linkedin_job_tracker/
 ## Current Data Model Notes
 
 - Local entity uses Room camelCase columns (`companyName`, `jobUrl`, `createdAt`, `updatedAt`).
-- Supabase wire format uses canonical snake_case (`company_name`, `job_url`, `created_at`, `modified_at`).
+- Supabase wire format uses canonical snake_case (`company_name`, `job_url`, `saved_at`, `modified_at`).
 - Business identity for sync is `job_url` / `jobUrl`.
 - Conflict handling uses `updatedAt` with clock-skew tolerance.
 

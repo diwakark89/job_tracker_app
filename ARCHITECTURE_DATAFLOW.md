@@ -66,7 +66,7 @@ User shares LinkedIn URL from LinkedIn app
          Backend processes and scrapes
                 │
                 ▼
-         Job inserted into `allJobs` via realtime (`realtime:public:jobs_raw`)
+         Job inserted into `allJobs` via realtime (`realtime:public:jobs_final`)
                 │
                 ▼
          combine(pendingJobsByUrl, allJobs) detects match
@@ -215,10 +215,10 @@ MainActivity
    └─ Shared link handler:
       ├─ Fetch LinkedIn page
       ├─ Parse job details with JSoup
-      └─ Insert into `public.jobs_raw` table
+      └─ Insert into `public.jobs_final` table
 
 6. REALTIME UPDATE
-   └─ SupabaseRealtimeManager receives `postgres_changes` INSERT on `public.jobs_raw`
+   └─ SupabaseRealtimeManager receives `postgres_changes` INSERT on `public.jobs_final`
       └─ processRealtimeEvent()
          └─ dao.upsertJob(newJob)
 

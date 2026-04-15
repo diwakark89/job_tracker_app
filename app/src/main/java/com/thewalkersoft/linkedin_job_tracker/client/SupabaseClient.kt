@@ -9,9 +9,9 @@ import com.google.gson.JsonElement
 import com.google.gson.JsonPrimitive
 import com.google.gson.JsonSerializationContext
 import com.google.gson.JsonSerializer
+import com.google.gson.Strictness
 import com.thewalkersoft.linkedin_job_tracker.BuildConfig
 import com.thewalkersoft.linkedin_job_tracker.data.JobStatus
-import com.thewalkersoft.linkedin_job_tracker.data.displayName
 import com.thewalkersoft.linkedin_job_tracker.data.parseJobStatus
 import com.thewalkersoft.linkedin_job_tracker.service.SupabaseApiService
 import okhttp3.Interceptor
@@ -31,9 +31,10 @@ object SupabaseClient {
     fun isCloudConfigured(): Boolean = isConfigured
 
     /**
-     * Shared Gson instance that serialises [JobStatus] using its display name
-     * ("Saved", "Applied", "Interview", "Resume-Rejected", "Interview-Rejected")
-     * to match the Supabase check constraint, and deserialises back via
+     * Shared Gson instance that serialises [JobStatus] using uppercase enum values
+     * ("SAVED", "APPLIED", "INTERVIEW", "INTERVIEWING", "OFFER",
+     * "RESUME_REJECTED", "INTERVIEW_REJECTED") to match the Supabase
+     * `jobs_final.job_status` check constraint, and deserialises back via
      * [parseJobStatus]. Used for both REST calls and realtime event parsing.
      *
      * The Long TypeAdapter converts epoch-millisecond timestamps to/from ISO-8601
@@ -63,12 +64,12 @@ object SupabaseClient {
     }
 
     val supabaseGson: Gson = GsonBuilder()
-        .setLenient()
+        .setStrictness(Strictness.LENIENT)
         .registerTypeAdapter(JobStatus::class.java, object :
             JsonSerializer<JobStatus>, JsonDeserializer<JobStatus> {
             override fun serialize(
                 src: JobStatus, typeOfSrc: Type, context: JsonSerializationContext
-            ): JsonElement = JsonPrimitive(src.displayName())
+            ): JsonElement = JsonPrimitive(src.name)
 
             override fun deserialize(
                 json: JsonElement, typeOfT: Type, context: JsonDeserializationContext

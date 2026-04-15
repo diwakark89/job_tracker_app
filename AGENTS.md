@@ -77,9 +77,9 @@ On Windows use `gradlew.bat`.
 - Use `parseJobStatus()` for inbound string parsing.
 
 ### Supabase Integration
-- `SupabaseApiService` targets `rest/v1/jobs_raw` and uses `on_conflict=job_url`.
-- Use canonical snake_case wire field names (`company_name`, `job_url`, `created_at`, `modified_at`, etc.).
-- Realtime updates are consumed from `realtime:public:jobs_raw` through `SupabaseRealtimeManager` and applied to Room.
+- `SupabaseApiService` targets `rest/v1/jobs_final` and uses `on_conflict=job_id`.
+- Use canonical snake_case wire field names (`company_name`, `job_url`, `saved_at`, `modified_at`, etc.).
+- Realtime updates are consumed from `realtime:public:jobs_final` through `SupabaseRealtimeManager` and applied to Room.
 
 ---
 

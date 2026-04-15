@@ -6,7 +6,6 @@ import com.thewalkersoft.linkedin_job_tracker.data.JobEntity
 import com.thewalkersoft.linkedin_job_tracker.data.JobStatus
 import com.thewalkersoft.linkedin_job_tracker.data.parseJobStatus
 import com.thewalkersoft.linkedin_job_tracker.service.JobFinalUpsertRequest
-import com.thewalkersoft.linkedin_job_tracker.service.JobRawUpsertRequest
 import com.thewalkersoft.linkedin_job_tracker.service.SharedLinkFallbackRequest
 import com.thewalkersoft.linkedin_job_tracker.service.SupabaseApiService
 import org.junit.Assert.assertEquals
@@ -17,7 +16,7 @@ import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.POST
 
-class SupabaseJobsRawContractTest {
+class SupabaseJobsFinalContractTest {
 
     @Test
     fun supabaseApiService_targetsJobsFinalEndpoints() {
@@ -33,10 +32,6 @@ class SupabaseJobsRawContractTest {
             .first { it.name == "deleteJobById" }
             .getAnnotation(DELETE::class.java)
             ?.value
-        val rawUpsertPath = SupabaseApiService::class.java.declaredMethods
-            .first { it.name == "upsertRawJob" }
-            .getAnnotation(POST::class.java)
-            ?.value
         val sharedLinksPath = SupabaseApiService::class.java.declaredMethods
             .first { it.name == "insertSharedLink" }
             .getAnnotation(POST::class.java)
@@ -49,7 +44,6 @@ class SupabaseJobsRawContractTest {
         assertEquals("rest/v1/jobs_final", getJobsPath)
         assertEquals("rest/v1/jobs_final", upsertPath)
         assertEquals("rest/v1/jobs_final", deletePath)
-        assertEquals("rest/v1/jobs_raw", rawUpsertPath)
         assertEquals("rest/v1/shared_links", sharedLinksPath)
         assertEquals("rest/v1/shared_links", sharedLinksFallbackPath)
     }
@@ -61,7 +55,22 @@ class SupabaseJobsRawContractTest {
     }
 
     @Test
-    fun supabaseGson_deserializesJobStatusFromJobsFinalPayload() {
+    fun parseJobStatus_acceptsLegacyDisplayValues() {
+        assertEquals(JobStatus.SAVED, parseJobStatus("Saved"))
+        assertEquals(JobStatus.APPLIED, parseJobStatus("Applied"))
+        assertEquals(JobStatus.INTERVIEWING, parseJobStatus("Interviewing"))
+        assertEquals(JobStatus.INTERVIEW_REJECTED, parseJobStatus("Interview-Rejected"))
+    }
+
+    @Test
+    fun parseJobStatus_mapsUnknownValuesToSaved() {
+        assertEquals(JobStatus.SAVED, parseJobStatus("SCRAPED"))
+        assertEquals(JobStatus.SAVED, parseJobStatus("ENRICHED"))
+        assertEquals(JobStatus.SAVED, parseJobStatus("totally-unknown-status"))
+    }
+
+    @Test
+    fun supabaseGson_deserializesUppercaseJobStatusFromJobsFinalPayload() {
         val payload =
             """
             {
@@ -70,7 +79,7 @@ class SupabaseJobsRawContractTest {
               "job_url": "https://www.linkedin.com/jobs/view/1",
               "description": "Android role",
               "role_title": "Android Engineer",
-              "job_status": "Interviewing",
+              "job_status": "INTERVIEWING",
               "language": "English",
               "saved_at": "2026-04-05T10:00:00.000Z",
               "modified_at": "2026-04-05T10:05:00.000Z",
@@ -132,7 +141,7 @@ class SupabaseJobsRawContractTest {
         assertTrue(jsonObject.has("job_id"))
         assertEquals("job-3", jsonObject.get("job_id").asString)
         assertTrue(jsonObject.has("job_status"))
-        assertEquals("Applied", jsonObject.get("job_status").asString)
+        assertEquals("APPLIED", jsonObject.get("job_status").asString)
         assertTrue(jsonObject.has("match_score"))
         assertEquals(95, jsonObject.get("match_score").asInt)
         assertTrue(jsonObject.has("saved_at"))
@@ -142,30 +151,6 @@ class SupabaseJobsRawContractTest {
         assertFalse(jsonObject.has("prep_notes"))
         assertFalse(jsonObject.has("filter_reason"))
         assertFalse(jsonObject.has("created_at"))
-    }
-
-    @Test
-    fun jobRawUpsertRequest_serializesParentFieldsForFkRecovery() {
-        val job = JobEntity(
-            id = "job-4",
-            companyName = "Raw Co",
-            jobUrl = "https://www.linkedin.com/jobs/view/4",
-            jobDescription = "Raw description",
-            jobTitle = "Android Developer",
-            status = JobStatus.SAVED
-        )
-
-        val jsonObject = JsonParser.parseString(
-            SupabaseClient.supabaseGson.toJson(JobRawUpsertRequest.from(job))
-        ).asJsonObject
-
-        assertTrue(jsonObject.has("id"))
-        assertEquals("job-4", jsonObject.get("id").asString)
-        assertTrue(jsonObject.has("job_url"))
-        assertTrue(jsonObject.has("created_at"))
-        assertTrue(jsonObject.has("modified_at"))
-        assertTrue(jsonObject.has("job_status"))
-        assertFalse(jsonObject.has("job_id"))
     }
 
     @Test
@@ -181,4 +166,5 @@ class SupabaseJobsRawContractTest {
         assertFalse(jsonObject.has("status"))
     }
 }
+
 

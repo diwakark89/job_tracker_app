@@ -209,16 +209,17 @@ Local Room table: jobs
 ├─ companyName: String (searchable)
 ├─ jobUrl: String (LinkedIn URL, unique business key)
 ├─ jobDescription: String (scraped text)
-├─ status: JobStatus (stored as display-name string)
+├─ status: JobStatus (stored as uppercase enum string)
 ├─ createdAt: Long (epoch millis)
 └─ updatedAt: Long (epoch millis)
 
-Supabase wire table: jobs_raw
-├─ job_status (maps to local JobStatus)
-├─ pipeline_stage
-├─ content_hash
-├─ external_id
-└─ location
+Supabase wire table: jobs_final
+├─ job_id (maps to local id)
+├─ job_status (uppercase enum token)
+├─ saved_at
+├─ modified_at
+├─ is_deleted
+└─ match_score
 ```
 
 ### Status Values

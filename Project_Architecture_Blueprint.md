@@ -7,7 +7,7 @@ Project: Job Tracker
 
 - Platform: Android (Kotlin), Jetpack Compose, Room, Coroutines/Flow.
 - App pattern: MVVM with a single `JobViewModel`.
-- Cloud integration: Supabase REST (`/rest/v1/jobs_raw`, `/rest/v1/shared_links`) + Realtime (`realtime:public:jobs_raw`).
+- Cloud integration: Supabase REST (`/rest/v1/jobs_final`, `/rest/v1/shared_links`) + Realtime (`realtime:public:jobs_final`).
 - Local-first behavior: Room is UI source of truth; outbox/retry handles transient network failures.
 
 ## 2) Main Components
@@ -18,15 +18,15 @@ Project: Job Tracker
 - `JobDatabase` / `JobDao`: persistence and migrations.
 - `SupabaseClient` + `SupabaseApiService`: REST transport.
 - `SupabaseRepository`: pull/push logic and conflict decisions.
-- `SupabaseRealtimeManager`: realtime `postgres_changes` stream for `public.jobs_raw`.
+- `SupabaseRealtimeManager`: realtime `postgres_changes` stream for `public.jobs_final`.
 - `OutboxSyncWorker` + `OutboxWorkScheduler`: background retry pipeline.
 
 ## 3) Runtime Flow
 
 1. User shares LinkedIn URL.
 2. ViewModel triggers scraper and writes a local `JobEntity`.
-3. ViewModel pushes raw-schema writes to `/rest/v1/jobs_raw` through repository/client.
-4. Realtime events from `realtime:public:jobs_raw` and pull sync reconcile local Room records.
+3. ViewModel pushes job writes to `/rest/v1/jobs_final` through repository/client.
+4. Realtime events from `realtime:public:jobs_final` and pull sync reconcile local Room records.
 5. UI observes `allJobs`/`jobs` state flows and re-renders.
 
 ## 4) Data and Sync Rules
@@ -46,10 +46,9 @@ Project: Job Tracker
 - `jobDescription` -> `description`
 - `jobTitle` -> `role_title`
 - `status` -> `job_status` (reads legacy `status` inbound)
-- `createdAt` -> `created_at`
+- `createdAt` -> `saved_at`
 - `updatedAt` -> `modified_at`
-- `pipeline_stage` -> currently set/normalized on server (`SCRAPED` default)
-- `matchScore`, `prepNotes`, `sourcePlatform`, `filterReason` -> local-only fields (omitted from `jobs_raw` writes)
+- `matchScore`, `prepNotes`, `sourcePlatform`, `filterReason` -> local-only fields (omitted from `jobs_final` writes)
 
 ## 6) Guardrails
 

@@ -9,7 +9,7 @@ import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [JobEntity::class], version = 8, exportSchema = true)
+@Database(entities = [JobEntity::class], version = 9, exportSchema = true)
 @TypeConverters(Converters::class)
 abstract class JobDatabase : RoomDatabase() {
     abstract fun jobDao(): JobDao
@@ -20,13 +20,13 @@ abstract class JobDatabase : RoomDatabase() {
 
         // Migration from version 1 to version 2: Add lastModified column
         val MIGRATION_1_2 = object : Migration(1, 2) {
-            override fun migrate(database: SupportSQLiteDatabase) {
+            override fun migrate(db: SupportSQLiteDatabase) {
                 // Add lastModified column with default value = timestamp
-                database.execSQL(
+                db.execSQL(
                     "ALTER TABLE jobs ADD COLUMN lastModified INTEGER NOT NULL DEFAULT 0"
                 )
                 // Update existing rows to have lastModified = timestamp
-                database.execSQL(
+                db.execSQL(
                     "UPDATE jobs SET lastModified = timestamp WHERE lastModified = 0"
                 )
             }
@@ -34,9 +34,9 @@ abstract class JobDatabase : RoomDatabase() {
 
         // Migration from version 2 to version 3: Add jobTitle column
         val MIGRATION_2_3 = object : Migration(2, 3) {
-            override fun migrate(database: SupportSQLiteDatabase) {
+            override fun migrate(db: SupportSQLiteDatabase) {
                 // Add jobTitle column with default value = empty string
-                database.execSQL(
+                db.execSQL(
                     "ALTER TABLE jobs ADD COLUMN jobTitle TEXT NOT NULL DEFAULT ''"
                 )
             }
@@ -44,8 +44,8 @@ abstract class JobDatabase : RoomDatabase() {
 
         // Migration from version 3 to version 4: move to UUID string IDs + cloud fields
         val MIGRATION_3_4 = object : Migration(3, 4) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL(
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
                     """
                     CREATE TABLE IF NOT EXISTS jobs_new (
                         id TEXT NOT NULL,
@@ -68,7 +68,7 @@ abstract class JobDatabase : RoomDatabase() {
                     """.trimIndent()
                 )
 
-                database.execSQL(
+                db.execSQL(
                     """
                     INSERT INTO jobs_new (
                         id, companyName, jobUrl, jobDescription, jobTitle, status,
@@ -103,19 +103,19 @@ abstract class JobDatabase : RoomDatabase() {
                     """.trimIndent()
                 )
 
-                database.execSQL("DROP TABLE jobs")
-                database.execSQL("ALTER TABLE jobs_new RENAME TO jobs")
-                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_jobs_jobUrl ON jobs(jobUrl)")
-                database.execSQL("CREATE INDEX IF NOT EXISTS idx_jobs_status_lastModified ON jobs(status, lastModified DESC)")
-                database.execSQL("CREATE INDEX IF NOT EXISTS idx_jobs_timestamp ON jobs(timestamp DESC)")
+                db.execSQL("DROP TABLE jobs")
+                db.execSQL("ALTER TABLE jobs_new RENAME TO jobs")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_jobs_jobUrl ON jobs(jobUrl)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_jobs_status_lastModified ON jobs(status, lastModified DESC)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_jobs_timestamp ON jobs(timestamp DESC)")
             }
         }
 
         // Migration from version 4 to version 5: enforce unique jobUrl for all install paths.
         val MIGRATION_4_5 = object : Migration(4, 5) {
-            override fun migrate(database: SupportSQLiteDatabase) {
+            override fun migrate(db: SupportSQLiteDatabase) {
                 // Keep exactly one row per jobUrl before creating the unique index.
-                database.execSQL(
+                db.execSQL(
                     """
                     DELETE FROM jobs
                     WHERE rowid NOT IN (
@@ -132,15 +132,15 @@ abstract class JobDatabase : RoomDatabase() {
                     """.trimIndent()
                 )
 
-                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_jobs_jobUrl ON jobs(jobUrl)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_jobs_jobUrl ON jobs(jobUrl)")
             }
         }
 
         // Migration from version 5 to version 6: normalize jobs table so it exactly matches
         // the Room entity schema (no SQL defaults on optional fields and only entity indices).
         val MIGRATION_5_6 = object : Migration(5, 6) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL(
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
                     """
                     CREATE TABLE IF NOT EXISTS jobs_new (
                         id TEXT NOT NULL,
@@ -164,7 +164,7 @@ abstract class JobDatabase : RoomDatabase() {
                 )
 
                 // Keep one row per jobUrl and preserve the newest version when duplicates exist.
-                database.execSQL(
+                db.execSQL(
                     """
                     INSERT INTO jobs_new (
                         id, companyName, jobUrl, jobDescription, jobTitle, status,
@@ -198,16 +198,16 @@ abstract class JobDatabase : RoomDatabase() {
                     """.trimIndent()
                 )
 
-                database.execSQL("DROP TABLE jobs")
-                database.execSQL("ALTER TABLE jobs_new RENAME TO jobs")
-                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_jobs_jobUrl ON jobs(jobUrl)")
+                db.execSQL("DROP TABLE jobs")
+                db.execSQL("ALTER TABLE jobs_new RENAME TO jobs")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_jobs_jobUrl ON jobs(jobUrl)")
             }
         }
 
         // Migration from version 6 to version 7: add tombstone flag for soft-delete sync.
         val MIGRATION_6_7 = object : Migration(6, 7) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL(
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
                     """
                     CREATE TABLE IF NOT EXISTS jobs_new (
                         id TEXT NOT NULL,
@@ -231,7 +231,7 @@ abstract class JobDatabase : RoomDatabase() {
                     """.trimIndent()
                 )
 
-                database.execSQL(
+                db.execSQL(
                     """
                     INSERT INTO jobs_new (
                         id, companyName, jobUrl, jobDescription, jobTitle, status,
@@ -246,9 +246,9 @@ abstract class JobDatabase : RoomDatabase() {
                     """.trimIndent()
                 )
 
-                database.execSQL("DROP TABLE jobs")
-                database.execSQL("ALTER TABLE jobs_new RENAME TO jobs")
-                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_jobs_jobUrl ON jobs(jobUrl)")
+                db.execSQL("DROP TABLE jobs")
+                db.execSQL("ALTER TABLE jobs_new RENAME TO jobs")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_jobs_jobUrl ON jobs(jobUrl)")
             }
         }
 
@@ -257,8 +257,8 @@ abstract class JobDatabase : RoomDatabase() {
         //   - Rename lastModified (Long) -> updatedAt (Long)
         //   - Drop old createdAt TEXT and updatedAt TEXT columns (were ISO-string server timestamps)
         val MIGRATION_7_8 = object : Migration(7, 8) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL(
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
                     """
                     CREATE TABLE IF NOT EXISTS jobs_new (
                         id TEXT NOT NULL,
@@ -279,7 +279,7 @@ abstract class JobDatabase : RoomDatabase() {
                     )
                     """.trimIndent()
                 )
-                database.execSQL(
+                db.execSQL(
                     """
                     INSERT INTO jobs_new (
                         id, companyName, jobUrl, jobDescription, jobTitle, status,
@@ -294,9 +294,32 @@ abstract class JobDatabase : RoomDatabase() {
                     FROM jobs
                     """.trimIndent()
                 )
-                database.execSQL("DROP TABLE jobs")
-                database.execSQL("ALTER TABLE jobs_new RENAME TO jobs")
-                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_jobs_jobUrl ON jobs(jobUrl)")
+                db.execSQL("DROP TABLE jobs")
+                db.execSQL("ALTER TABLE jobs_new RENAME TO jobs")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_jobs_jobUrl ON jobs(jobUrl)")
+            }
+        }
+
+        // Migration from version 8 to version 9:
+        //   - Normalize locally stored status values to uppercase enum tokens
+        //   - Preserve compatibility for legacy display-name rows and REJECTED alias
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    UPDATE jobs
+                    SET status = CASE
+                        WHEN upper(replace(replace(trim(status), '-', '_'), ' ', '_')) = 'SAVED' THEN 'SAVED'
+                        WHEN upper(replace(replace(trim(status), '-', '_'), ' ', '_')) = 'APPLIED' THEN 'APPLIED'
+                        WHEN upper(replace(replace(trim(status), '-', '_'), ' ', '_')) = 'INTERVIEW' THEN 'INTERVIEW'
+                        WHEN upper(replace(replace(trim(status), '-', '_'), ' ', '_')) = 'INTERVIEWING' THEN 'INTERVIEWING'
+                        WHEN upper(replace(replace(trim(status), '-', '_'), ' ', '_')) = 'OFFER' THEN 'OFFER'
+                        WHEN upper(replace(replace(trim(status), '-', '_'), ' ', '_')) IN ('REJECTED', 'RESUME_REJECTED') THEN 'RESUME_REJECTED'
+                        WHEN upper(replace(replace(trim(status), '-', '_'), ' ', '_')) = 'INTERVIEW_REJECTED' THEN 'INTERVIEW_REJECTED'
+                        ELSE 'SAVED'
+                    END
+                    """.trimIndent()
+                )
             }
         }
 
@@ -307,7 +330,8 @@ abstract class JobDatabase : RoomDatabase() {
             MIGRATION_4_5,
             MIGRATION_5_6,
             MIGRATION_6_7,
-            MIGRATION_7_8
+            MIGRATION_7_8,
+            MIGRATION_8_9
         )
 
         fun getDatabase(context: Context): JobDatabase {
@@ -329,7 +353,7 @@ abstract class JobDatabase : RoomDatabase() {
 class Converters {
     @TypeConverter
     fun fromJobStatus(status: JobStatus): String {
-        return status.displayName()
+        return status.name
     }
 
     @TypeConverter

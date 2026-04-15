@@ -117,16 +117,24 @@ class JobDatabaseMigrationTest {
         val dbName = testDbName("v6-v7-isDeleted")
 
         helper.createDatabase(dbName, 6).apply {
-            insertJobV6(
-                db = this,
-                id = "soft-delete-seed",
-                companyName = "Seed Co",
-                jobUrl = "https://www.linkedin.com/jobs/view/seed",
-                jobDescription = "seed description",
-                jobTitle = "Android Engineer",
-                status = "Saved",
-                timestamp = 1234,
-                lastModified = 5678
+            execSQL(
+                """
+                INSERT INTO jobs (
+                    id, companyName, jobUrl, jobDescription, jobTitle, status,
+                    timestamp, lastModified, matchScore, language, prepNotes,
+                    sourcePlatform, filterReason, createdAt, updatedAt
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 'English', NULL, NULL, NULL, NULL, NULL)
+                """.trimIndent(),
+                arrayOf<Any>(
+                    "soft-delete-seed",
+                    "Seed Co",
+                    "https://www.linkedin.com/jobs/view/seed",
+                    "seed description",
+                    "Android Engineer",
+                    "Saved",
+                    1234L,
+                    5678L
+                )
             )
             close()
         }
@@ -146,6 +154,81 @@ class JobDatabaseMigrationTest {
             assertEquals("https://www.linkedin.com/jobs/view/seed", cursor.getString(1))
             assertEquals(5678L, cursor.getLong(2))
             assertEquals(0, cursor.getInt(3))
+        }
+    }
+
+    @Test
+    fun migrate8To9_normalizesLegacyStatusesToUppercaseTokens() {
+        val dbName = testDbName("v8-v9-status-normalization")
+
+        helper.createDatabase(dbName, 8).apply {
+            insertJobV8(
+                db = this,
+                id = "legacy-saved",
+                companyName = "Saved Co",
+                jobUrl = "https://www.linkedin.com/jobs/view/legacy-saved",
+                jobDescription = "saved description",
+                status = "Saved",
+                createdAt = 1000,
+                updatedAt = 2000
+            )
+            insertJobV8(
+                db = this,
+                id = "legacy-rejected",
+                companyName = "Rejected Co",
+                jobUrl = "https://www.linkedin.com/jobs/view/legacy-rejected",
+                jobDescription = "rejected description",
+                status = "Resume-Rejected",
+                createdAt = 3000,
+                updatedAt = 4000
+            )
+            insertJobV8(
+                db = this,
+                id = "legacy-alias",
+                companyName = "Alias Co",
+                jobUrl = "https://www.linkedin.com/jobs/view/legacy-alias",
+                jobDescription = "alias description",
+                status = "REJECTED",
+                createdAt = 5000,
+                updatedAt = 6000
+            )
+            insertJobV8(
+                db = this,
+                id = "legacy-unknown",
+                companyName = "Unknown Co",
+                jobUrl = "https://www.linkedin.com/jobs/view/legacy-unknown",
+                jobDescription = "unknown description",
+                status = "SCRAPED",
+                createdAt = 7000,
+                updatedAt = 8000
+            )
+            close()
+        }
+
+        val migratedDb = helper.runMigrationsAndValidate(
+            dbName,
+            9,
+            true,
+            JobDatabase.MIGRATION_8_9
+        )
+
+        migratedDb.query("SELECT id, status FROM jobs ORDER BY id").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+
+            assertEquals("legacy-alias", cursor.getString(0))
+            assertEquals("RESUME_REJECTED", cursor.getString(1))
+
+            assertTrue(cursor.moveToNext())
+            assertEquals("legacy-rejected", cursor.getString(0))
+            assertEquals("RESUME_REJECTED", cursor.getString(1))
+
+            assertTrue(cursor.moveToNext())
+            assertEquals("legacy-saved", cursor.getString(0))
+            assertEquals("SAVED", cursor.getString(1))
+
+            assertTrue(cursor.moveToNext())
+            assertEquals("legacy-unknown", cursor.getString(0))
+            assertEquals("SAVED", cursor.getString(1))
         }
     }
 
@@ -222,26 +305,35 @@ class JobDatabaseMigrationTest {
         )
     }
 
-    private fun insertJobV6(
+    private fun insertJobV8(
         db: SupportSQLiteDatabase,
         id: String,
         companyName: String,
         jobUrl: String,
         jobDescription: String,
-        jobTitle: String,
         status: String,
-        timestamp: Long,
-        lastModified: Long
+        createdAt: Long,
+        updatedAt: Long
     ) {
         db.execSQL(
             """
             INSERT INTO jobs (
                 id, companyName, jobUrl, jobDescription, jobTitle, status,
-                timestamp, lastModified, matchScore, language, prepNotes,
-                sourcePlatform, filterReason, createdAt, updatedAt
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 'English', NULL, NULL, NULL, NULL, NULL)
+                createdAt, updatedAt, isDeleted, matchScore, language,
+                prepNotes, sourcePlatform, filterReason
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'English', NULL, NULL, NULL)
             """.trimIndent(),
-            arrayOf<Any>(id, companyName, jobUrl, jobDescription, jobTitle, status, timestamp, lastModified)
+            arrayOf<Any>(
+                id,
+                companyName,
+                jobUrl,
+                jobDescription,
+                "Android Engineer",
+                status,
+                createdAt,
+                updatedAt,
+                0
+            )
         )
     }
 
