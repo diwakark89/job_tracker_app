@@ -78,6 +78,9 @@ class MainActivity : ComponentActivity() {
                     onEditJob = { job, companyName, jobUrl, jobTitle, jobDescription ->
                         viewModel.updateJob(job, companyName, jobUrl, jobTitle, jobDescription)
                     },
+                    onSaveDetailsEdit = { job, companyName, jobTitle, jobDescription ->
+                        viewModel.updateJobFromDetails(job, companyName, jobTitle, jobDescription)
+                    },
                     onRestoreJob = viewModel::restoreJob,
                     onMessageShown = viewModel::clearMessage,
                     diagnosticsStep = diagnosticsStep,

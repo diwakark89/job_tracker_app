@@ -46,6 +46,7 @@ fun AppNavigation(
     onManualSyncClick: () -> Unit,
     onOpenUrl: (String) -> Unit,
     onEditJob: (JobEntity, String, String, String, String) -> Unit,
+    onSaveDetailsEdit: suspend (JobEntity, String, String, String) -> JobViewModel.JobEditSaveResult,
     onRestoreJob: (JobEntity) -> Unit,
     onMessageShown: () -> Unit,
     modifier: Modifier = Modifier,
@@ -119,13 +120,15 @@ fun AppNavigation(
                 JobDetailsScreen(
                     job = job,
                     syncFailure = jobSyncFailureById[job.id],
+                    message = message,
+                    onMessageShown = onMessageShown,
                     onNavigateBack = { navController.navigateUp() },
                     onStatusChange = { newStatus ->
                         onStatusChange(job, newStatus)
                     },
                     onOpenUrl = onOpenUrl,
-                    onEdit = { companyName, jobUrl, jobTitle, jobDescription ->
-                        onEditJob(job, companyName, jobUrl, jobTitle, jobDescription)
+                    onSaveEdit = { companyName, jobTitle, jobDescription ->
+                        onSaveDetailsEdit(job, companyName, jobTitle, jobDescription)
                     },
                     onDelete = {
                         onDeleteJob(job.id)
@@ -196,6 +199,7 @@ fun AppNavigationPreview() {
             onManualSyncClick = {},
             onOpenUrl = { _ -> },
             onEditJob = { _, _, _, _, _ -> },
+            onSaveDetailsEdit = { _, _, _, _ -> JobViewModel.JobEditSaveResult.Success() },
             onRestoreJob = { _ -> },
             onMessageShown = {}
         )

@@ -74,7 +74,7 @@ class SupabaseJobsFinalContractTest {
         val payload =
             """
             {
-              "job_id": "job-1",
+              "id": "job-1",
               "company_name": "Acme",
               "job_url": "https://www.linkedin.com/jobs/view/1",
               "description": "Android role",
@@ -101,7 +101,7 @@ class SupabaseJobsFinalContractTest {
         val payload =
             """
             {
-              "job_id": "job-2",
+              "id": "job-2",
               "company_name": "Legacy Co",
               "job_url": "https://www.linkedin.com/jobs/view/2",
               "description": "Legacy role",
@@ -129,27 +129,24 @@ class SupabaseJobsFinalContractTest {
             jobTitle = "Backend Engineer",
             status = JobStatus.APPLIED,
             matchScore = 95,
-            prepNotes = "Should not be sent",
-            sourcePlatform = "LinkedIn",
-            filterReason = "Should not be sent"
+            sourcePlatform = "LinkedIn"
         )
 
         val jsonObject = JsonParser.parseString(
             SupabaseClient.supabaseGson.toJson(JobFinalUpsertRequest.from(job))
         ).asJsonObject
 
-        assertTrue(jsonObject.has("job_id"))
-        assertEquals("job-3", jsonObject.get("job_id").asString)
+        assertTrue(jsonObject.has("id"))
+        assertEquals("job-3", jsonObject.get("id").asString)
         assertTrue(jsonObject.has("job_status"))
         assertEquals("APPLIED", jsonObject.get("job_status").asString)
         assertTrue(jsonObject.has("match_score"))
         assertEquals(95, jsonObject.get("match_score").asInt)
         assertTrue(jsonObject.has("saved_at"))
-        assertFalse(jsonObject.has("id"))
+        assertTrue(jsonObject.has("source_platform"))
+        assertEquals("LinkedIn", jsonObject.get("source_platform").asString)
+        assertFalse(jsonObject.has("job_id"))
         assertFalse(jsonObject.has("status"))
-        assertFalse(jsonObject.has("source_platform"))
-        assertFalse(jsonObject.has("prep_notes"))
-        assertFalse(jsonObject.has("filter_reason"))
         assertFalse(jsonObject.has("created_at"))
     }
 

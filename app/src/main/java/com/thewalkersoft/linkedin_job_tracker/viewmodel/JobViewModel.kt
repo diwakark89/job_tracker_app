@@ -73,6 +73,11 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
         val pulledUpdates: Int = 0
     )
 
+    sealed interface JobEditSaveResult {
+        data class Success(val message: String? = null) : JobEditSaveResult
+        data class Failure(val message: String) : JobEditSaveResult
+    }
+
     private val _manualSyncUiState = MutableStateFlow(ManualSyncUiState())
     val manualSyncUiState: StateFlow<ManualSyncUiState> = _manualSyncUiState.asStateFlow()
 
@@ -333,7 +338,7 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
                     if (job.isDeleted) dao.deleteJob(job.id) else dao.upsertJob(job)
                 }
                 is RealtimeJobEvent.Delete -> {
-                    val id = event.oldRecord.get("job_id")?.asString
+                    val id = event.oldRecord.get("id")?.asString
                     if (!id.isNullOrBlank()) dao.deleteJob(id)
                 }
             }
@@ -483,6 +488,32 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    suspend fun updateJobFromDetails(
+        job: JobEntity,
+        companyName: String,
+        jobTitle: String,
+        jobDescription: String
+    ): JobEditSaveResult {
+        return runCatching {
+            val updatedJob = job.copy(
+                companyName = companyName,
+                jobTitle = jobTitle,
+                jobDescription = jobDescription,
+                updatedAt = System.currentTimeMillis()
+            )
+
+            dao.upsertJob(updatedJob)
+            when (queueOrPushUpsert(updatedJob)) {
+                UpsertSyncOutcome.SYNCED -> JobEditSaveResult.Success()
+                UpsertSyncOutcome.QUEUED -> JobEditSaveResult.Success("Saved locally; cloud sync queued.")
+            }
+        }.getOrElse { throwable ->
+            val failureMessage = "Failed to save changes: ${throwable.message ?: "unknown error"}"
+            _message.value = failureMessage
+            JobEditSaveResult.Failure(failureMessage)
+        }
+    }
+
     fun deleteJob(jobId: String) {
         viewModelScope.launch {
             val job = dao.getAllJobsOnce().firstOrNull { it.id == jobId }
@@ -509,7 +540,7 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private suspend fun queueOrPushUpsert(job: JobEntity) {
+    private suspend fun queueOrPushUpsert(job: JobEntity): UpsertSyncOutcome {
         val result = repository.pushJob(job)
         if (!result.success) {
             val reason = result.failureReason ?: SyncDiagnostics.buildFailureReason(
@@ -530,6 +561,9 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
                 "[directUpsert][queued] jobId=${job.id} jobUrl=${SyncDiagnostics.redactJobUrl(job.jobUrl)} reason=$reason queueSize=${preferencesManager.getOutboxOperations().size}"
             )
             OutboxWorkScheduler.kick(getApplication())
+            refreshPerJobSyncState()
+            refreshCloudHealth()
+            return UpsertSyncOutcome.QUEUED
         } else {
             preferencesManager.clearLastSyncFailureReason(job.jobUrl)
             preferencesManager.saveLastSyncFailedPushCount(0)
@@ -538,9 +572,10 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
                 SyncDiagnostics.TAG,
                 "[directUpsert][synced] jobId=${job.id} jobUrl=${SyncDiagnostics.redactJobUrl(job.jobUrl)}"
             )
+            refreshPerJobSyncState()
+            refreshCloudHealth()
+            return UpsertSyncOutcome.SYNCED
         }
-        refreshPerJobSyncState()
-        refreshCloudHealth()
     }
 
     private suspend fun queueOrPushDelete(job: JobEntity) {
@@ -703,6 +738,11 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
     companion object {
         private const val TAG = "JobViewModel"
         private val URL_REGEX = Regex("""https?://[^\s]+""", RegexOption.IGNORE_CASE)
+    }
+
+    private enum class UpsertSyncOutcome {
+        SYNCED,
+        QUEUED
     }
 
     private fun extractLinkedInJobUrl(sharedText: String): String? {

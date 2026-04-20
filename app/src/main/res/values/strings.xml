@@ -26,4 +26,7 @@
     <string name="sem_active_sync_state">%1$d of %2$d acknowledged</string>
     <string name="sem_sync_statistics">Sync statistics</string>
     <string name="sem_about_sync_information">About sync information</string>
+    <string name="sem_details_save_ready">Ready to save changes</string>
+    <string name="sem_details_save_in_progress">Saving changes</string>
+    <string name="sem_details_url_read_only">LinkedIn URL is read only</string>
 </resources>

@@ -11,7 +11,7 @@ import androidx.room.PrimaryKey
 )
 data class JobEntity(
     @PrimaryKey
-    @SerializedName(value = "job_id", alternate = ["id"])
+    @SerializedName("id")
     val id: String,
     @SerializedName("company_name")
     val companyName: String,
@@ -32,12 +32,8 @@ data class JobEntity(
     @SerializedName("match_score")
     val matchScore: Int? = 90,
     val language: String = "English",
-    @SerializedName("prep_notes")
-    val prepNotes: String? = null,
     @SerializedName("source_platform")
-    val sourcePlatform: String? = null,
-    @SerializedName("filter_reason")
-    val filterReason: String? = null
+    val sourcePlatform: String? = null
 )
 
 enum class JobStatus {

@@ -23,13 +23,13 @@ interface SupabaseApiService {
     @POST(JOBS_FINAL_PATH)
     suspend fun upsertJob(
         @Body jobs: List<JobFinalUpsertRequest>,
-        @Query("on_conflict") onConflict: String = "job_id",
+        @Query("on_conflict") onConflict: String = "job_url",
         @Header("Prefer") prefer: String = "resolution=merge-duplicates"
     ): Response<Unit>
 
     @DELETE(JOBS_FINAL_PATH)
     suspend fun deleteJobById(
-        @Query("job_id") jobIdEq: String
+        @Query("id") jobIdEq: String
     ): Response<Unit>
 
     @POST("rest/v1/shared_links")
@@ -57,7 +57,7 @@ data class SharedLinkFallbackRequest(
 )
 
 data class JobFinalUpsertRequest(
-    @SerializedName("job_id")
+    @SerializedName("id")
     val jobId: String,
     @SerializedName("company_name")
     val companyName: String,
@@ -78,6 +78,8 @@ data class JobFinalUpsertRequest(
     val isDeleted: Boolean,
     @SerializedName("match_score")
     val matchScore: Int,
+    @SerializedName("source_platform")
+    val sourcePlatform: String,
     val tags: List<String>? = null
 ) {
     companion object {
@@ -92,7 +94,8 @@ data class JobFinalUpsertRequest(
             savedAt = job.createdAt,
             updatedAt = job.updatedAt,
             isDeleted = job.isDeleted,
-            matchScore = job.matchScore ?: 90
+            matchScore = job.matchScore ?: 90,
+            sourcePlatform = job.sourcePlatform ?: "linkedin"
         )
     }
 }

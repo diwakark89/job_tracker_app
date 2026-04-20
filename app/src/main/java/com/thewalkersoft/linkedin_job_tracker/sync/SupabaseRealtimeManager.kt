@@ -25,9 +25,9 @@ import java.util.concurrent.atomic.AtomicInteger
  *
  * NOTE: Column names in the realtime payload match the actual Postgres column
  * names. The `jobs_final` table uses snake_case column names (`company_name`,
- * `job_url`, `job_id`, etc.), matching the `@SerializedName` annotations in
+ * `job_url`, `id`, etc.), matching the `@SerializedName` annotations in
  * `JobEntity`. `REPLICA IDENTITY FULL` is enabled on `jobs_final` so that
- * DELETE events include all columns (specifically `job_id`).
+ * DELETE events include all columns (specifically `id`).
  */
 class SupabaseRealtimeManager {
 

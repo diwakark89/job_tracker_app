@@ -6,6 +6,7 @@ import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -349,6 +350,91 @@ class JobDatabaseMigrationTest {
             if (!cursor.moveToFirst()) return ""
             return cursor.getString(0)
         }
+    }
+
+    @Test
+    fun migrate9To10_dropsPrepNotesAndFilterReasonColumns() {
+        val dbName = testDbName("v9-v10-drop-columns")
+
+        helper.createDatabase(dbName, 9).apply {
+            insertJobV9(
+                db = this,
+                id = "drop-cols-seed",
+                companyName = "DropCols Co",
+                jobUrl = "https://www.linkedin.com/jobs/view/drop-cols",
+                jobDescription = "drop columns description",
+                status = "SAVED",
+                createdAt = 1000,
+                updatedAt = 2000
+            )
+            close()
+        }
+
+        val migratedDb = helper.runMigrationsAndValidate(
+            dbName,
+            10,
+            true,
+            JobDatabase.MIGRATION_9_10
+        )
+
+        // Verify row data is preserved
+        migratedDb.query(
+            "SELECT id, companyName, jobUrl, jobDescription, status, createdAt, updatedAt, isDeleted, language FROM jobs WHERE id = 'drop-cols-seed'"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("drop-cols-seed", cursor.getString(0))
+            assertEquals("DropCols Co", cursor.getString(1))
+            assertEquals("https://www.linkedin.com/jobs/view/drop-cols", cursor.getString(2))
+            assertEquals("drop columns description", cursor.getString(3))
+            assertEquals("SAVED", cursor.getString(4))
+            assertEquals(1000L, cursor.getLong(5))
+            assertEquals(2000L, cursor.getLong(6))
+            assertEquals(0, cursor.getInt(7))
+            assertEquals("English", cursor.getString(8))
+        }
+
+        // Verify prepNotes and filterReason columns no longer exist
+        val columnNames = mutableListOf<String>()
+        migratedDb.query("PRAGMA table_info(jobs)").use { cursor ->
+            while (cursor.moveToNext()) {
+                columnNames.add(cursor.getString(cursor.getColumnIndexOrThrow("name")))
+            }
+        }
+        assertTrue("Expected sourcePlatform column to exist", "sourcePlatform" in columnNames)
+        assertFalse("prepNotes column should be dropped", "prepNotes" in columnNames)
+        assertFalse("filterReason column should be dropped", "filterReason" in columnNames)
+    }
+
+    private fun insertJobV9(
+        db: SupportSQLiteDatabase,
+        id: String,
+        companyName: String,
+        jobUrl: String,
+        jobDescription: String,
+        status: String,
+        createdAt: Long,
+        updatedAt: Long
+    ) {
+        db.execSQL(
+            """
+            INSERT INTO jobs (
+                id, companyName, jobUrl, jobDescription, jobTitle, status,
+                createdAt, updatedAt, isDeleted, matchScore, language,
+                prepNotes, sourcePlatform, filterReason
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'English', NULL, NULL, NULL)
+            """.trimIndent(),
+            arrayOf<Any>(
+                id,
+                companyName,
+                jobUrl,
+                jobDescription,
+                "Android Engineer",
+                status,
+                createdAt,
+                updatedAt,
+                0
+            )
+        )
     }
 
     companion object {
